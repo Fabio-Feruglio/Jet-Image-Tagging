@@ -13,7 +13,7 @@ def process_and_save_hdf5(output_filepath='jet_images_299.h5',
                           jet_types=['t', 'q', 'g', 'w', 'z'], 
                           im_size=299, 
                           maxR=0.4, 
-                          batch_size=1000):
+                          batch_size=64):
     """
     Download JetNet dataset, convert to images and save in .hdf5 file
     """
@@ -45,7 +45,7 @@ def process_and_save_hdf5(output_filepath='jet_images_299.h5',
             shape=(0, 1, im_size, im_size), 
             maxshape=(None, 1, im_size, im_size), 
             dtype='float32',
-            batchs=(batch_size, 1, im_size, im_size) # batch reading
+            chunks=(batch_size, 1, im_size, im_size) # batch reading
         )
         
         dset_labels = h5f.create_dataset(
@@ -86,7 +86,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Load and pre-process the JetNet dataset")
     parser.add_argument('--output_file', type=str, default="jet_images_299.h5", help='Output file path name')
-    parser.add_argument('--batch_size', type=int, default=1000, help='Batch dimension (not too large)')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch dimension (not too large)')
     parser.add_argument('--maxR', type=float, default=0.4, help='Max range of pseudorapidity / azimuthal angle')
     parser.add_argument('--data_dir', type=str, default='./dataset', help='Directory for raw data')
     parser.add_argument('--im_size', type=int, default=299, help='Size of image in pixels')
