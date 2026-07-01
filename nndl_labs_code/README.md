@@ -1,0 +1,1 @@
+This is just a copy of the code proposed in some of the course laboratory sessions, written in a share-friendly format (i.e. no notebooks except for launchers).

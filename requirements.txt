@@ -1,0 +1,10 @@
+torch>=2.0.0
+torchvision
+numpy
+matplotlib
+seaborn
+scikit-learn
+wandb
+torchmetrics
+pyyaml
+tqdm
