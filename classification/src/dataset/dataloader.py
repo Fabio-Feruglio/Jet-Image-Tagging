@@ -59,8 +59,8 @@ class JetImageDataset(Dataset):
         label_np = self.h5_file['labels'][actual_idx]
         
         # Convert to torch tensors
-        image_tensor = torch.tensor(image_np, dtype=torch.float32)
-        label_tensor = torch.tensor(label_np, dtype=torch.long)
+        image_tensor = torch.from_numpy(image_np).to(dtype=torch.float32)
+        label_tensor = torch.as_tensor(label_np, dtype=torch.long)
 
         if self.transform:
             image_tensor = self.transform(image_tensor)
