@@ -49,7 +49,7 @@ def process_and_save_hdf5(output_filepath = 'jet_images_299.h5',
             shape = (0, 1, im_size, im_size),
             maxshape = (None, 1, im_size, im_size), # allow unlimited growth in the first dimension
             dtype = image_dtype,
-            chunks = (1, 1, im_size, im_size), # chunk size for efficient writing
+            chunks = (min(batch_size, 64), 1, im_size, im_size), # chunk size for efficient writing
             compression = compression,
             compression_opts = compression_opts if compression == 'gzip' else None,
             shuffle = True,
