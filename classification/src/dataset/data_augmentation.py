@@ -14,7 +14,7 @@ class RandomDeadPixel(object):
 
     def __call__(self, tensor):
 
-        # Randomply decide whether to apply the transofrm
+        # Randomly decide whether to apply the transform
         if torch.rand(1).item() > self.prob:
             return tensor
 
