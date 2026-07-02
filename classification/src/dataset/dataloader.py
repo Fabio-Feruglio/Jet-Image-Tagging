@@ -21,8 +21,7 @@ class JetImageDataset(Dataset):
         self.filepath = dataset_filepath
         self.h5_file = None
 
-        with h5py.File(self.filepath, 'r') as f:
-            """
+        with h5py.File(self.filepath, "r") as f:
             labels_obj = f["labels"]
 
             if not isinstance(labels_obj, h5py.Dataset):
@@ -32,8 +31,6 @@ class JetImageDataset(Dataset):
                 raise ValueError("'labels' must be at least 1D")
 
             total_length = int(labels_obj.shape[0])
-            """
-            total_length = len(f['labels']) # if this does not work, uncomment code before...
         
         if indices is None:
             self.indices = np.arange(total_length)
