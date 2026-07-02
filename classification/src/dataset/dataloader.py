@@ -108,10 +108,12 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
 
     stat_loader = DataLoader(dataset = raw_train_dataset, batch_size = 256, shuffle = False, num_workers = num_workers)
 
+    calculated_mean, calculated_std = get_mean_and_std(stat_loader)
+
     # Transforms for data augmentation
     train_transforms = transforms.Compose([
         transforms.Resize((img_size, img_size)), # Resize
-        transforms.Normalize(mean = calculated_mean, std = calculated_std), # Normalize with calculated stats
+        transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), # Normalize with calculated stats
         #transforms.RandomErasing(),
         #RandomDeadPixel(p = 0.1, max_dead_pixels = 10) # Custom transform to simulate dead pixels
     ])
@@ -119,7 +121,7 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
     # For the evaluation we do not augment data
     eval_transforms = transforms.Compose([
         transforms.Resize((img_size, img_size)),
-        transforms.Normalize(mean = calculated_mean, std = calculated_std), # Normalize with calculated stats
+        transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), # Normalize with calculated stats
     ])
 
 
