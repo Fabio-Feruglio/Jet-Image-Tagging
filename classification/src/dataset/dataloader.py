@@ -6,7 +6,10 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
-from data_augmentation import RandomDeadPixel
+try:
+    from .data_augmentation import RandomDeadPixel
+except ImportError:  # pragma: no cover
+    from data_augmentation import RandomDeadPixel
 
 ### Dataset Classes and Dataloader functions
 
