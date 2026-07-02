@@ -9,6 +9,8 @@ class RandomDeadPixel(object):
     Simulates dead pixels in a 2D image tensor by randomly setting a certain number of pixels to zero.
     """
     def __init__(self, p = 0.5, max_dead_pixels = 10):
+        if max_dead_pixels < 1:
+            raise ValueError("max_dead_pixels must be >= 1")
         self.prob = p
         self.max_dead_pixels = max_dead_pixels
 
