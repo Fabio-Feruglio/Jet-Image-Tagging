@@ -96,12 +96,17 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
     Prepare the dataloaders for training, test and validation
     """
 
-    # Split the dataset into training, validation, and test sets
-    with h5py.File(data_filepath, 'r') as f:
-        total_samples = len(f['labels'])
-    all_indices = np.arange(total_samples)
-    train_idx, temp_idx = train_test_split(all_indices, test_size=0.2, random_state=42)
-    val_idx, test_idx = train_test_split(temp_idx, test_size=0.5, random_state=42)
+    # Split the dataset into training, validation, and test sets (stratified by label)
+    with h5py.File(data_filepath, "r") as f:
+        labels = f["labels"][:]
+
+    all_indices = np.arange(labels.shape[0])
+    train_idx, temp_idx = train_test_split(
+        all_indices, test_size=0.2, random_state=42, stratify=labels
+    )
+    val_idx, test_idx = train_test_split(
+        temp_idx, test_size=0.5, random_state=42, stratify=labels[temp_idx]
+    )
 
     # Compute mean and std for normalization
     raw_train_dataset = JetImageDataset(dataset_filepath = data_filepath, indices = train_idx)
