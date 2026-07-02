@@ -32,7 +32,7 @@ class JetImageDataset(Dataset):
             """
             total_length = len(f['labels']) # if this does not work, uncomment code before...
         
-        if self.indices is None:
+        if indices is None:
             self.indices = np.arange(total_length)
         else:
             self.indices = indices
