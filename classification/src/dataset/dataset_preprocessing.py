@@ -17,18 +17,9 @@ def process_and_save_hdf5(output_filepath='jet_images_299.h5',
                            compression='gzip',
                            compression_opts=4,
                            image_dtype='float32'):
-    """
-    Scarica il dataset JetNet, lo converte in immagini e lo salva in un file
-    .hdf5 COMPRESSO, sfruttando la forte sparsita' delle jet-image (al
-    massimo ~30 pixel non nulli su ~90.000 per immagine 299x299).
-    """
+    
     os.makedirs(data_dir, exist_ok=True)
-
-    # IMPORTANTE: feature esplicite invece di "all". to_image() si aspetta
-    # ESATTAMENTE [eta, phi, pt] (qui: etarel, phirel, ptrel) + una mask
-    # separata per ignorare le particelle di padding (jet con <30
-    # particelle reali). Passare "all" aggiunge colonne extra che
-    # confondono to_image().
+                             
     particle_feats = ["etarel", "phirel", "ptrel", "mask"]
     jet_feats = ["type", "pt", "eta", "mass", "num_particles"]
 
@@ -47,11 +38,7 @@ def process_and_save_hdf5(output_filepath='jet_images_299.h5',
 
     print(f"Initializing output file: {output_filepath}")
     with h5py.File(output_filepath, 'w') as h5f:
-        # chunks=(1, ...) -> ogni immagine e' compressa singolarmente: ottimo
-        # sia per la compressione (immagini quasi tutte zero) sia per la
-        # lettura casuale (shuffle) durante il training.
-        # shuffle=True e' il filtro "byte shuffle" di HDF5, migliora
-        # ulteriormente il rapporto di compressione su dati numerici.
+        
         dset_images = h5f.create_dataset(
             'images',
             shape=(0, 1, im_size, im_size),
@@ -71,6 +58,8 @@ def process_and_save_hdf5(output_filepath='jet_images_299.h5',
         )
 
         print("Generazione immagini e salvataggio a blocchi...")
+
+        #Qua ha cambiato solo per la velocità computazionale
         for start_idx in tqdm(range(0, total_samples, batch_size)):
             end_idx = min(start_idx + batch_size, total_samples)
 
