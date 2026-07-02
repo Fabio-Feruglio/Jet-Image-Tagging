@@ -63,6 +63,16 @@ class JetImageDataset(Dataset):
             image_tensor = self.transform(image_tensor)
             
         return image_tensor, label_tensor
+    
+    def __del__(self):
+        """
+        Destructor
+        """
+        if hasattr(self, 'h5_file') and self.h5_file is not None:
+            try:
+                self.h5_file.close()
+            except Exception:
+                pass
 
 
 def get_mean_and_std(dataloader):
