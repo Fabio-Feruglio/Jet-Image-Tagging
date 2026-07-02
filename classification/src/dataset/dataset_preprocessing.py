@@ -1,4 +1,3 @@
-# Import and pre-processing from JetNet dataset
 import h5py
 import numpy as np
 from tqdm import tqdm
@@ -7,6 +6,7 @@ from jetnet.utils import to_image
 import os
 import argparse
 
+### Import and pre-processing from JetNet dataset
 
 def process_and_save_hdf5(output_filepath = 'jet_images_299.h5',
                            data_dir = './JetNet_dataset',
