@@ -106,8 +106,7 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
     # Compute mean and std for normalization
     raw_train_dataset = JetImageDataset(dataset_filepath = data_filepath, indices = train_idx)
 
-    stat_loader = DataLoader(dataset = raw_train_dataset, batch_size = 256, shuffle = False, num_workers = 2)
-    calculated_mean, calculated_std = get_mean_and_std(stat_loader)
+    stat_loader = DataLoader(dataset = raw_train_dataset, batch_size = 256, shuffle = False, num_workers = num_workers)
 
     # Transforms for data augmentation
     train_transforms = transforms.Compose([
