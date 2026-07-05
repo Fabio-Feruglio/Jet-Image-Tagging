@@ -33,7 +33,6 @@ class InceptionV4(nn.Module):
         )
         self.drop = nn.Dropout(p = 0.8) # mitigates overfitting
         self.out: nn.Module = nn.Linear(1536, num_classes) # adapted to get 5 classes output
-        self.softmax: nn.Module = nn.Softmax(dim = 1) # normalizes the output to prob distribution
 
         self.apply(self._init_weights)
 
@@ -47,7 +46,6 @@ class InceptionV4(nn.Module):
         x = x.mean(dim = [2, 3]) 
         x = self.drop(x)
         y = self.out(x)
-        y = self.softmax(y)
         return y
 
     def _init_weights(self, module):

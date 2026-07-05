@@ -10,17 +10,15 @@ class EnsembleModel(nn.Module):
         self.resnet = ResNet50(num_classes = num_classes)
         self.inception = InceptionV4(num_classes = num_classes)
 
-        self.resnet.classification_layer = nn.Identity()
-        self.resnet.softmax = nn.Identity()
+        self.resnet.out = nn.Identity()
         self.inception.out = nn.Identity()
-        self.inception.softmax = nn.Identity()
+
 
         self.fc = nn.Sequential(
             nn.Linear(2048 + 1536, 512),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(512, num_classes),
-            nn.Softmax(dim = 1)  # Final softmax layer for classification
         )
 
     def forward(self, x):

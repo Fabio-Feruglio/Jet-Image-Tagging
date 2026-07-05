@@ -44,15 +44,13 @@ class ResNet50(nn.Module):
 
             nn.AdaptiveAvgPool2d((1, 1)), # Global Average Pooling
         )
-        self.classification_layer: nn.Module = nn.Linear(2048, num_classes) # adapted to get 5 classes output
-        self.softmax: nn.Module = nn.Softmax(dim = 1) # normalizes the output to prob distribution
+        self.out: nn.Module = nn.Linear(2048, num_classes) # adapted to get 5 classes output
         self.apply(self._init_weights)
 
     def forward(self, x):
         y = self.network(x)
         y = y.reshape(x.shape[0], -1) 
-        y = self.classification_layer(y)
-        y = self.softmax(y)
+        y = self.out(y)
         return y
 
     def _init_weights(self, module):
