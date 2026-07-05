@@ -6,8 +6,8 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset.dataloader import get_dataloaders
-from model.resnet import ResNet50
-from model.inception import InceptionV4
+from model.ensemble import EnsembleModel
+
 
 ### TRAINING ###
 def train_epoch(model, dataloader, loss_fn, optimizer, device):
@@ -17,16 +17,11 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device):
 
     train_iterator = tqdm(dataloader)
     for x_batch, label_batch in train_iterator:
-        x_batch = x_batch.to(device)
-        label_batch = label_batch.to(device)
+        x_batch, label_batch = x_batch.to(device), label_batch.to(device)
 
-        # Forward pass
         y_pred = model(x_batch) 
-
-        # Loss computation
         loss = loss_fn(y_pred, label_batch) 
 
-        # Backward pass
         optimizer.zero_grad() 
         loss.backward() 
         optimizer.step()  
@@ -34,17 +29,11 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device):
         train_iterator.set_description(f"Train loss: {loss.item():.4f}")
         losses.append(loss.item())
 
-        #train_iterator.set_description(f"Train loss: {loss.detach().cpu().numpy()}")
-        #losses.append(loss.detach().cpu().numpy())
-
-        # Accuracy computation (we have a 5-class classification problem)
         pred = torch.argmax(y_pred, dim=1)
         acc = (pred == label_batch).float().mean()
         accuracies.append(acc.item())
 
-    avg_loss = np.mean(losses)
-    avg_acc = np.mean(accuracies)
-    return avg_loss, avg_acc
+    return np.mean(losses), np.mean(accuracies)
 
 
 ### VALIDATION ###
@@ -55,10 +44,8 @@ def val_epoch(model, dataloader, loss_fn, device):
 
     with torch.no_grad():
         val_iterator = tqdm(dataloader)
-
         for x_batch, label_batch in val_iterator:
-            x_batch = x_batch.to(device)
-            label_batch = label_batch.to(device)
+            x_batch, label_batch = x_batch.to(device), label_batch.to(device)
 
             y_pred = model(x_batch)
             loss = loss_fn(y_pred, label_batch)
@@ -72,45 +59,48 @@ def val_epoch(model, dataloader, loss_fn, device):
             
     avg_loss = np.mean(losses)
     avg_acc = np.mean(accuracies)
-    
     print(f"Validation Loss: {avg_loss:.4f} | Validation Accuracy: {avg_acc:.4f}")
     return avg_loss, avg_acc
 
 
 def main(args):
-    # 1. Setup Device
+    # Setup Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'Selected Device: {device}')
     
-    # 2. Folders creation
+    # Folders creation
     os.makedirs(args.save_dir, exist_ok=True)
     #os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
     # TensorBoard viewer setup
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs'))
     
     
-    # 3. Load dataloaders 
+    # Load dataloaders 
     train_dataloader, valid_dataloader, test_dataloader = get_dataloaders(data_filepath = args.data_path, 
                                                                           img_size = args.img_size, batch_size = args.batch_size, 
                                                                           num_workers = min(4, os.cpu_count() or 1))
     
-    # 4. Initialize model and loss function
-    if args.mode == 'resnet':
-        model = ResNet50().to(device)
-    elif args.mode == 'inception':
-        model = InceptionV4().to(device)
-    else:
-        raise ValueError("Non-supported mode. Please choose 'resnet' or 'inception'.")
+    model = EnsembleModel(num_classes = 5, 
+                          resnet_path = args.resnet_weights, 
+                          inception_path = args.inception_weights, 
+                          device = str(device)).to(device)
+    
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    # 5. Define an optimizer 
-    lr = args.lr # Learning rate
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr,  weight_decay=1e-4)
+    # Freeze the backbone and train only final head for warmup epochs
+    for param in model.resnet.parameters(): 
+        param.requires_grad = False
+    for param in model.inception.parameters(): 
+        param.requires_grad = False
 
-    start_epoch = 0
+    optimizer = torch.optim.Adam(model.fc.parameters(), lr=args.lr)
+    warmup_epochs = 3 
+    warmup_stage = True
+
     best_val_loss = float('inf')
-    patience = 5 # For early stopping
+    patience = 5
     no_improvement_epochs = 0
+    start_epoch = 0
 
     # Training resume logic
     if args.resume_from:
@@ -125,62 +115,75 @@ def main(args):
                 best_val_loss = checkpoint['best_val_loss']
             if 'no_improvement_epochs' in checkpoint:
                 no_improvement_epochs = checkpoint['no_improvement_epochs']
+            if 'warmup_stage' in checkpoint:
+                warmup_stage = checkpoint['warmup_stage']
             print(f"Training resumed from {start_epoch}")
         else:
             print(f"No file found in '{args.resume_from}', starting from epoch = 0.")
-    
-    # 6. Training cycle
+
     for epoch in range(start_epoch, args.epochs):
+        
+        # After warmup epochs, unfreeze the backbone for fine-tuning
+        if warmup_stage and epoch == warmup_epochs:
+            print("\n Warm-up completed... Now unfreezing the backbone for fine-tuning.")
+            for param in model.resnet.parameters():
+                param.requires_grad = True
+            for param in model.inception.parameters():
+                param.requires_grad = True
+            
+            # Different lr for backbone and final head
+            optimizer = torch.optim.Adam([
+                {'params': model.resnet.parameters(), 'lr': args.lr * 0.1},
+                {'params': model.inception.parameters(), 'lr': args.lr * 0.1},
+                {'params': model.fc.parameters(), 'lr': args.lr}
+            ])
+            warmup_stage = False
+
+        print(f'\nEPOCH {epoch+1}/{args.epochs} [{args.mode.upper()}]')
         train_loss, train_acc = train_epoch(model, train_dataloader, loss_fn, optimizer, device)
         val_loss, val_acc = val_epoch(model, valid_dataloader, loss_fn, device)
 
-        print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f} - Train Accuracy: {train_acc:.4f}')
-        print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.4f} - Validation Accuracy: {val_acc:.4f}')
+        writer.add_scalar('Loss/Train_ensemble', train_loss, epoch)
+        writer.add_scalar('Loss/Validation_ensemble', val_loss, epoch)
+        writer.add_scalar('Accuracy/Train_ensemble', train_acc, epoch)
+        writer.add_scalar('Accuracy/Validation_ensemble', val_acc, epoch)
 
-        # Add values for TensorBoard viewer
-        writer.add_scalar('Loss/Train', train_loss, epoch)
-        writer.add_scalar('Loss/Validation', val_loss, epoch)
-        writer.add_scalar('Accuracy/Train', train_acc, epoch)
-        writer.add_scalar('Accuracy/Validation', val_acc, epoch)
-
-        # Save the checkpoint
         checkpoint_dict = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'best_val_loss': best_val_loss,
-            'no_improvement_epochs': no_improvement_epochs
+            'no_improvement_epochs': no_improvement_epochs,
+            'warmup_stage': warmup_stage
         }
         
-        # Save the best model
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'ensemble_latest.pth'))
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'ensemble_best.pth'))
             no_improvement_epochs = 0
         else:
             no_improvement_epochs += 1
 
-        # Early stopping
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
             break
 
     writer.close()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"{args.mode}_best.pth")}')
 
 if __name__ == "__main__":
-    # Command line args configuration
-    parser = argparse.ArgumentParser(description="Train the ensemble model for jet image classification")
-    parser.add_argument('--mode', type=str, default='resnet', choices=['resnet', 'inception'], help="Choose the model to train: 'resnet' or 'inception'")
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
-    parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--data_path', type=str, default='./dataset.h5', help='Path to the dataset file')
-    parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
-    parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
+    parser = argparse.ArgumentParser(description="Jet Image Classification Trainer")
+    
+    parser.add_argument('--resnet_weights', type=str, default=None, help='Resnet weights path')
+    parser.add_argument('--inception_weights', type=str, default=None, help='Inception weights path')
+    parser.add_argument('--epochs', type=int, default=30)
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--img_size', type=int, default=299)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--data_path', type=str, default='./dataset.h5')
+    parser.add_argument('--save_dir', type=str, default='./checkpoints')
+    parser.add_argument('--resume_from', type=str, default=None)
 
     args = parser.parse_args()
     main(args)

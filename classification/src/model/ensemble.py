@@ -1,3 +1,4 @@
+import os
 import torch
 from torch import nn
 
@@ -5,13 +6,23 @@ from inception import InceptionV4
 from resnet import ResNet50
 
 class EnsembleModel(nn.Module):
-    def __init__(self, num_classes = 5):
+    def __init__(self, num_classes = 5, resnet_path=None, inception_path=None, device='cpu'):
         super().__init__()
         self.resnet = ResNet50(num_classes = num_classes)
         self.inception = InceptionV4(num_classes = num_classes)
 
         self.resnet.out = nn.Identity()
         self.inception.out = nn.Identity()
+
+        if resnet_path and os.path.exists(resnet_path):
+            print(f"Load ResNEt weights from {resnet_path}")
+            checkpoint = torch.load(resnet_path, map_location=device)
+            self.resnet.load_state_dict(checkpoint['model_state_dict'])
+            
+        if inception_path and os.path.exists(inception_path):
+            print(f"Load Inception weights from {inception_path}")
+            checkpoint = torch.load(inception_path, map_location=device)
+            self.inception.load_state_dict(checkpoint['model_state_dict'])
 
 
         self.fc = nn.Sequential(
@@ -29,13 +40,3 @@ class EnsembleModel(nn.Module):
 
         return final_out
     
-    def _init_weights(self, module):
-        if isinstance(module, torch.nn.Linear):
-            torch.nn.init.xavier_uniform_(module.weight)
-            if module.bias is not None:
-                module.bias.data.zero_()
-                
-        if isinstance(module, torch.nn.Conv2d):
-            torch.nn.init.xavier_uniform_(module.weight)
-            if module.bias is not None:
-                module.bias.data.zero_()

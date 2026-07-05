@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import seaborn as sns
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_curve, roc_auc_score, confusion_matrix, classification_report, auc
+from sklearn.metrics import accuracy_score, roc_curve, confusion_matrix, classification_report, auc
 from sklearn.preprocessing import label_binarize
 
 from dataset.dataloader import get_dataloaders
