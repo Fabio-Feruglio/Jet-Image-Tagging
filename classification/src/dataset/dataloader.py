@@ -1,3 +1,6 @@
+import json
+import os
+
 import h5py 
 import torch
 import numpy as np
@@ -59,6 +62,9 @@ class JetImageDataset(Dataset):
         image_tensor = torch.from_numpy(image_np).to(dtype=torch.float32)
         label_tensor = torch.as_tensor(label_np, dtype=torch.long)
 
+        if image_tensor.ndim == 2:
+            image_tensor = image_tensor.unsqueeze(0)
+
         if self.transform:
             image_tensor = self.transform(image_tensor)
             
@@ -75,10 +81,16 @@ class JetImageDataset(Dataset):
                 pass
 
 
-def get_mean_and_std(dataloader):
+def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
     """
     Compute mean and standard deviation of the dataset for normalization.
     """
+    if os.path.exists(cache_file):
+        print(f"Loading cached mean and std from {cache_file}...")
+        with open(cache_file, 'r') as f:
+            stats = json.load(f)
+        return stats['mean'], stats['std']
+    
     channels_sum = 0.0
     channels_sqrd_sum = 0.0
     num_pixels = 0
@@ -93,12 +105,15 @@ def get_mean_and_std(dataloader):
     mean = channels_sum / num_pixels
     variance = (channels_sqrd_sum / num_pixels) - (mean ** 2)
     std = torch.sqrt(variance)
+
+    with open(cache_file, 'w') as f:
+        json.dump({'mean': mean.item(), 'std': std.item()}, f)
     
     return mean.item(), std.item()
 
 
 
-def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size = 64, num_workers = 0):
+def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size = 64, num_workers = 0, max_samples = None):
     """
     Prepare the dataloaders for training, test and validation
     """
@@ -108,6 +123,13 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
         labels = f["labels"][:]
 
     all_indices = np.arange(labels.shape[0])
+
+    if max_samples is not None and max_samples < len(all_indices):
+        print(f"Subsampling dataset to {max_samples} samples (stratified)...")
+        all_indices, _, labels, _ = train_test_split(
+            all_indices, labels, train_size=max_samples, random_state=42, stratify=labels
+        )
+    
     train_idx, temp_idx = train_test_split(
         all_indices, test_size=0.2, random_state=42, stratify=labels
     )
@@ -118,13 +140,13 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
     # Compute mean and std for normalization
     raw_train_dataset = JetImageDataset(dataset_filepath = data_filepath, indices = train_idx)
 
-    stat_loader = DataLoader(dataset = raw_train_dataset, batch_size = 256, shuffle = False, num_workers = num_workers)
+    stat_loader = DataLoader(dataset = raw_train_dataset, batch_size = 512, shuffle = False, num_workers = 0)
 
     calculated_mean, calculated_std = get_mean_and_std(stat_loader)
 
     # Transforms for data augmentation
     train_transforms = transforms.Compose([
-        transforms.Resize((img_size, img_size)), # Resize
+        transforms.Resize((img_size, img_size), antialias = True), # Resize
         transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), # Normalize with calculated stats
         #transforms.RandomErasing(),
         #RandomDeadPixel(p = 0.1, max_dead_pixels = 10) # Custom transform to simulate dead pixels
@@ -132,7 +154,7 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
     
     # For the evaluation we do not augment data
     eval_transforms = transforms.Compose([
-        transforms.Resize((img_size, img_size)),
+        transforms.Resize((img_size, img_size), antialias = True),
         transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), # Normalize with calculated stats
     ])
 

@@ -78,7 +78,8 @@ def main(args):
     # Load dataloaders 
     train_dataloader, valid_dataloader, test_dataloader = get_dataloaders(data_filepath = args.data_path, 
                                                                           img_size = args.img_size, batch_size = args.batch_size, 
-                                                                          num_workers = min(4, os.cpu_count() or 1))
+                                                                          num_workers = min(4, os.cpu_count() or 1),
+                                                                          max_samples = 20000)
     
     model = EnsembleModel(num_classes = 5, 
                           resnet_path = args.resnet_weights, 

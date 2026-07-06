@@ -14,7 +14,7 @@ from model.resnet import ResNet50
 from model.inception import InceptionV4
 from model.ensemble import EnsembleModel
 
-def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, num_classes=5):
+def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, model_name, num_classes=5):
     model.eval() 
     
     with torch.no_grad(): # Remove gradient computation
@@ -63,7 +63,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, n
         plt.ylabel('True Label')
         plt.title(f'Confusion Matrix - {data_split.capitalize()}')
         
-        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}.png')
+        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
         plt.savefig(cm_path, bbox_inches='tight')
         plt.close()
         print(f"Confusion Matrix saved in: {cm_path}")
@@ -87,7 +87,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, n
         plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}')
         plt.legend(loc="lower right")
         
-        roc_path = os.path.join(save_dir, f'roc_curve_{data_split}.png')
+        roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
         print(f"ROC plot saved in: {roc_path}")
@@ -106,7 +106,17 @@ def main(args):
                                                               num_workers = min(4, os.cpu_count() or 1))
     
     # Initialize the model and load weights
-    model = ResNet50().to(device)
+    if args.model == 'resnet':
+        model = ResNet50().to(device)
+    elif args.model == 'inception':
+        model = InceptionV4().to(device)
+    elif args.model == 'ensemble':
+        model = EnsembleModel(num_classes = 5, 
+                              resnet_path = args.resnet_weights, 
+                              inception_path = args.inception_weights, 
+                              device = str(device)).to(device)
+    else:
+        raise ValueError("Invalid model type. Choose from 'resnet', 'inception', or 'ensemble'.")
     
     print(f"Loading model from: {args.model_path}")
     checkpoint = torch.load(args.model_path, map_location=device)
@@ -118,11 +128,12 @@ def main(args):
     loss_fn = nn.CrossEntropyLoss()
     
     # Evaluate
-    evaluate_network(valid_loader, model, loss_fn, device, data_split="validation", save_dir=args.save_dir)
-    evaluate_network(test_loader, model, loss_fn, device, data_split="test", save_dir=args.save_dir)
+    evaluate_network(valid_loader, model, loss_fn, device, data_split="validation", save_dir=args.save_dir, model_name=args.model)
+    evaluate_network(test_loader, model, loss_fn, device, data_split="test", save_dir=args.save_dir, model_name=args.model)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluation of ResNet50 model")
+    parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception', 'ensemble'], help="Choose the model to train: 'resnet', 'inception', or 'ensemble'")
     parser.add_argument('--model_path', type=str, required=True, help="Model weights path")
     parser.add_argument('--data_dir', type=str, default='./data_lab04')
     parser.add_argument('--save_dir', type=str, default='./results', help="Directory for plots and results")
