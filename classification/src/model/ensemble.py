@@ -2,8 +2,8 @@ import os
 import torch
 from torch import nn
 
-from inception import InceptionV4
-from resnet import ResNet50
+from .inception import InceptionV4
+from .resnet import ResNet50
 
 class EnsembleModel(nn.Module):
     def __init__(self, num_classes = 5, resnet_path=None, inception_path=None, device='cpu'):
