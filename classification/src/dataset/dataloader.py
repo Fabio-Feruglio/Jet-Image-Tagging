@@ -120,7 +120,10 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
 
     # Split the dataset into training, validation, and test sets (stratified by label)
     with h5py.File(data_filepath, "r") as f:
-        labels = f["labels"][:]
+        labels_obj = f["labels"]
+        if not isinstance(labels_obj, h5py.Dataset):
+            raise TypeError("'labels' must be an HDF5 Dataset")
+        labels = np.asarray(labels_obj[:])
 
     all_indices = np.arange(labels.shape[0])
 
@@ -130,11 +133,11 @@ def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size =
             all_indices, labels, train_size=max_samples, random_state=42, stratify=labels
         )
     
-    train_idx, temp_idx = train_test_split(
-        all_indices, test_size=0.2, random_state=42, stratify=labels
+    train_idx, temp_idx, train_labels, temp_labels = train_test_split(
+        all_indices, labels, test_size=0.2, random_state=42, stratify=labels
     )
     val_idx, test_idx = train_test_split(
-        temp_idx, test_size=0.5, random_state=42, stratify=labels[temp_idx]
+        temp_idx, test_size=0.5, random_state=42, stratify=temp_labels 
     )
 
     # Compute mean and std for normalization
