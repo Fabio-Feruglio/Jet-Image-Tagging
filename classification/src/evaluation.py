@@ -135,9 +135,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluation of ResNet50 model")
     parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception', 'ensemble'], help="Choose the model to train: 'resnet', 'inception', or 'ensemble'")
     parser.add_argument('--model_path', type=str, required=True, help="Model weights path")
-    parser.add_argument('--data_dir', type=str, default='./data_lab04')
+    parser.add_argument('--data_path', type=str, default='./data_lab04/jet_images_299.h5', help="Path to the dataset")
     parser.add_argument('--save_dir', type=str, default='./results', help="Directory for plots and results")
     parser.add_argument('--batch_size', type=int, default=64)
-    
+    parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
+
     args = parser.parse_args()
     main(args)
