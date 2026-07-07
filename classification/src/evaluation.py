@@ -103,7 +103,8 @@ def main(args):
     # Load dataloaders
     _, valid_loader, test_loader = get_dataloaders(data_filepath = args.data_path, 
                                                    img_size = args.img_size, batch_size = args.batch_size, 
-                                                   num_workers = min(4, os.cpu_count() or 1))
+                                                   num_workers = min(4, os.cpu_count() or 1),
+                                                   max_samples = args.max_samples)
     
     # Initialize the model and load weights
     if args.model == 'resnet':
@@ -137,6 +138,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_path', type=str, required=True, help="Model weights path")
     parser.add_argument('--data_path', type=str, default='./data_lab04/jet_images_299.h5', help="Path to the dataset")
     parser.add_argument('--save_dir', type=str, default='./results', help="Directory for plots and results")
+    parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for evaluation")
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
 

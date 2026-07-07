@@ -75,7 +75,7 @@ def objective(trial, args):
     train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
                                                             img_size = args.img_size, batch_size = batch_size, 
                                                             num_workers = min(4, os.cpu_count() or 1),
-                                                            max_samples = 20000)
+                                                            max_samples = args.max_samples)
     
     model = build_model(trial, args.model).to(device)
     loss_fn = nn.CrossEntropyLoss()
@@ -158,5 +158,6 @@ if __name__ == "__main__":
     parser.add_argument('--n_trials', type=int, default=20, help="Total number of trials")
     parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception'], help="Model name")
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
+    parser.add_argument('--max_samples', type=int, default=20000, help="Maximum number of samples to use for tuning")
     args = parser.parse_args()
     main(args)

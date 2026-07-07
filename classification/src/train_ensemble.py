@@ -79,7 +79,7 @@ def main(args):
     train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
                                                             img_size = args.img_size, batch_size = args.batch_size, 
                                                             num_workers = min(4, os.cpu_count() or 1),
-                                                            max_samples = 20000)
+                                                            max_samples = args.max_samples)
     
     model = EnsembleModel(num_classes = 5, 
                           resnet_path = args.resnet_weights, 
@@ -183,6 +183,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--img_size', type=int, default=299)
     parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
     parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
     parser.add_argument('--data_path', type=str, default='./dataset.h5')
     parser.add_argument('--save_dir', type=str, default='./checkpoints')

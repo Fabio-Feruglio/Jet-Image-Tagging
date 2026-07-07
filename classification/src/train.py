@@ -93,7 +93,7 @@ def main(args):
     train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
                                                             img_size = args.img_size, batch_size = args.batch_size, 
                                                             num_workers = min(4, os.cpu_count() or 1),
-                                                            max_samples = 20000)
+                                                            max_samples = args.max_samples)
     
     # 4. Initialize model and loss function
     if args.mode == 'resnet':
@@ -180,6 +180,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
+    parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
     parser.add_argument('--data_path', type=str, default='./dataset.h5', help='Path to the dataset file')
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
     parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
