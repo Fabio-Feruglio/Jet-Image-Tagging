@@ -1,15 +1,18 @@
 import argparse
-import optuna # type: ignore
-import wandb # type: ignore
+import os
+import optuna
+import wandb
 import torch
 import torch.nn as nn
 import numpy as np
 
-from dataloader import get_dataloaders
+from dataset.dataloader import get_dataloaders
+from model.resnet import ResNet50
+from model.inception import InceptionV4
 
 # Example file for tuning with optuna and viewing training loss / validation loss with Wandb
 
-def build_model(trial):
+def build_model_example(trial):
     """
     Use optuna 'trial' object to define a dynamic model
     NB: this is an example model: we could use directly the fixed ResNet class
@@ -36,7 +39,18 @@ def build_model(trial):
     layers.append(nn.Linear(in_features, 1)) # Final layer for binary classification
     return nn.Sequential(*layers)
 
-
+def build_model(trial, model_name):
+    """
+    Use optuna 'trial' object to define a dynamic model
+    """
+    if model_name == "resnet":
+        model = ResNet50(num_classes=5)  
+        return model
+    elif model_name == "inception":
+        model = InceptionV4(num_classes=5)  
+        return model
+    else:
+        raise ValueError(f"Model {model_name} not supported.")
 
 def objective(trial, args):
     """
@@ -44,26 +58,29 @@ def objective(trial, args):
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # HyperPar 4: learning rate (log scale)
-    lr = trial.suggest_float("lr", 1e-4, 1e-1, log=True)
-    # HyperPar 5: batch size
+    # HyperPar 1: learning rate (log scale)
+    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
+    # HyperPar 2: batch size
     batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
     
     # Initialize WandB: we can use this instead of TensorBoard, for better sharing
     run = wandb.init(
-        project="wifi-har-tuning", # Project name
+        project="jet-tagging-classification", # Project name
         group="optuna-study-01",   # group experiment runs
         config=trial.params,       # parameters of each experiment
         reinit=True                # reinitialize network each time
     )
     
     # Load the data and build the model
-    train_loader, valid_loader, _ = get_dataloaders(data_dir=args.data_dir, batch_size=batch_size)
+    train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
+                                                            img_size = args.img_size, batch_size = batch_size, 
+                                                            num_workers = min(4, os.cpu_count() or 1),
+                                                            max_samples = 20000)
     
-    model = build_model(trial).to(device)
-    loss_fn = nn.BCEWithLogitsLoss()
+    model = build_model(trial, args.model).to(device)
+    loss_fn = nn.CrossEntropyLoss()
 
-    # HyperPar 6: optimizer choice
+    # HyperPar 3: optimizer choice
     optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "SGD"])
     if optimizer_name == "Adam":
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -76,7 +93,7 @@ def objective(trial, args):
     for epoch in range(args.tune_epochs):
         model.train()
         train_losses = []
-        for batch_x, batch_y in train_loader:
+        for batch_x, batch_y in train_dataloader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device).unsqueeze(1).float()
             
             optimizer.zero_grad()
@@ -88,7 +105,7 @@ def objective(trial, args):
         model.eval()
         val_losses = []
         with torch.no_grad():
-            for batch_x, batch_y in valid_loader:
+            for batch_x, batch_y in valid_dataloader:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device).unsqueeze(1).float()
                 val_losses.append(loss_fn(model(batch_x), batch_y).item())
                 
@@ -136,9 +153,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='./data_lab04')
+    parser.add_argument('--data_path', type=str, default='./data_lab04')
     parser.add_argument('--tune_epochs', type=int, default=10, help="Epochs for each training (keep low: max 10-15)")
     parser.add_argument('--n_trials', type=int, default=20, help="Total number of trials")
-    
+    parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception'], help="Model name")
+    parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     args = parser.parse_args()
     main(args)

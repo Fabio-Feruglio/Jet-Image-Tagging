@@ -101,9 +101,9 @@ def main(args):
     os.makedirs(args.save_dir, exist_ok=True)
     
     # Load dataloaders
-    train_loader, valid_loader, test_loader = get_dataloaders(data_filepath = args.data_path, 
-                                                              img_size = args.img_size, batch_size = args.batch_size, 
-                                                              num_workers = min(4, os.cpu_count() or 1))
+    _, valid_loader, test_loader = get_dataloaders(data_filepath = args.data_path, 
+                                                   img_size = args.img_size, batch_size = args.batch_size, 
+                                                   num_workers = min(4, os.cpu_count() or 1))
     
     # Initialize the model and load weights
     if args.model == 'resnet':

@@ -90,10 +90,10 @@ def main(args):
     
     
     # 3. Load dataloaders 
-    train_dataloader, valid_dataloader, test_dataloader = get_dataloaders(data_filepath = args.data_path, 
-                                                                          img_size = args.img_size, batch_size = args.batch_size, 
-                                                                          num_workers = min(4, os.cpu_count() or 1),
-                                                                          max_samples = 20000)
+    train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
+                                                            img_size = args.img_size, batch_size = args.batch_size, 
+                                                            num_workers = min(4, os.cpu_count() or 1),
+                                                            max_samples = 20000)
     
     # 4. Initialize model and loss function
     if args.mode == 'resnet':
@@ -110,7 +110,7 @@ def main(args):
 
     start_epoch = 0
     best_val_loss = float('inf')
-    patience = 5 # For early stopping
+    patience = args.patience # For early stopping
     no_improvement_epochs = 0
 
     # Training resume logic
@@ -143,6 +143,7 @@ def main(args):
         writer.add_scalar('Loss/Validation', val_loss, epoch)
         writer.add_scalar('Accuracy/Train', train_acc, epoch)
         writer.add_scalar('Accuracy/Validation', val_acc, epoch)
+        writer.flush()
 
         # Save the checkpoint
         checkpoint_dict = {
@@ -182,6 +183,7 @@ if __name__ == "__main__":
     parser.add_argument('--data_path', type=str, default='./dataset.h5', help='Path to the dataset file')
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
     parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
+    parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
 
     args = parser.parse_args()
     main(args)
