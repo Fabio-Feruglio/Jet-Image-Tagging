@@ -120,7 +120,7 @@ def main(args):
         raise ValueError("Invalid model type. Choose from 'resnet', 'inception', or 'ensemble'.")
     
     print(f"Loading model from: {args.model_path}")
-    checkpoint = torch.load(args.model_path, map_location=device)
+    checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
     else:

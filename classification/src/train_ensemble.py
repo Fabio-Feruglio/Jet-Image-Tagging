@@ -107,7 +107,7 @@ def main(args):
     if args.resume_from:
         if os.path.isfile(args.resume_from):
             print(f"Loading checkpoint from '{args.resume_from}' ...")
-            checkpoint = torch.load(args.resume_from, map_location=device)
+            checkpoint = torch.load(args.resume_from, map_location=device, weights_only=False)
             
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
