@@ -1,10 +1,10 @@
 import os
 import gzip
 import shutil
-import h5py # type: ignore
+import h5py
 import torch
 from pathlib import Path
-import gdown  # type: ignore
+import gdown
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 
