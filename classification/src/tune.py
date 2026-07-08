@@ -5,155 +5,166 @@ import wandb
 import torch
 import torch.nn as nn
 import numpy as np
-import os
 
-from dataloader import get_dataloaders
+# Assicurati che i path di importazione siano corretti nel tuo ambiente Colab
+from dataset.dataloader import get_dataloaders
+from model.resnet import ResNet50
+from model.inception import InceptionV4
 
-# Example file for tuning with optuna and viewing training loss / validation loss with Wandb
+ARCHITECTURES = ["resnet", "inception"]
 
-def build_model(trial):
-    """
-    Use optuna 'trial' object to define a dynamic model
-    NB: this is an example model: we could use directly the fixed ResNet class
-        eventually modifying it to include some modifiable parameters (e.g. dropout rate)
-    """
-    # HyperPar 1: number of layers at the end of the ResNet
-    n_layers = trial.suggest_int("n_layers", 1, 3)
-    
-    layers = []
-    in_features = 10 
-    
-    for i in range(n_layers):
-        # HyperPar2 2: Neurons for each layer
-        out_features = int(trial.suggest_categorical(f"n_units_l{i}", [16, 32, 64, 128]))
-        layers.append(nn.Linear(in_features, out_features))
-        layers.append(nn.ReLU())
-        
-        # HyperPar 3: Dropout probability
-        dropout_rate = trial.suggest_float(f"dropout_l{i}", 0.1, 0.5)
-        layers.append(nn.Dropout(dropout_rate))
-        
-        in_features = out_features
-        
-    layers.append(nn.Linear(in_features, 1)) # Final layer for binary classification
-    return nn.Sequential(*layers)
-
+def build_actual_model(arch_name, num_classes=5):
+    """Istanzia i veri modelli del progetto invece del modello fake linerare."""
+    if arch_name == "resnet":
+        return ResNet50(num_classes=num_classes)
+    elif arch_name == "inception":
+        return InceptionV4(num_classes=num_classes)
+    else:
+        raise ValueError(f"Architettura {arch_name} sconosciuta!")
 
 
 def objective(trial, args, arch_name):
-    """
-    Optuna experiment function
-    """
+    """Esperimento Optuna per trovare i parametri ottimali del singolo backbone."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # HyperPar 1: learning rate (log scale)
+    # Iperparametri da ottimizzare
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-    # HyperPar 2: batch size
     batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-    # HyperPar 6: optimizer choice
     optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "SGD"])
     
-    # Initialize WandB: we can use this instead of TensorBoard, for better sharing
+    # Inizializzazione WandB per il trial corrente
     run = wandb.init(
-        project="wifi-har-tuning", # Project name
-        group="optuna-study-01",   # group experiment runs
-        config=trial.params,       # parameters of each experiment
-        reinit=True                # reinitialize network each time
+        project="jet-tagging-tuning",
+        group=f"optuna-{arch_name}",
+        name=f"trial_{arch_name}_{trial.number}",
+        config=trial.params,
+        reinit=True
     )
     
-    # Load the data and build the model
-    train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
-                                                            img_size = args.img_size, batch_size = batch_size, 
-                                                            num_workers = min(4, os.cpu_count() or 1),
-                                                            max_samples = args.max_samples)
+    # Caricamento dati dinamico in base al batch_size proposto da Optuna
+    train_loader, valid_loader, _ = get_dataloaders(
+        data_path=args.data_path, 
+        img_size=args.img_size, 
+        batch_size=batch_size, 
+        max_samples=args.max_samples
+    )
     
-    model = build_model(trial).to(device)
-    loss_fn = nn.BCEWithLogitsLoss()
+    model = build_actual_model(arch_name, num_classes=5).to(device)
+    loss_fn = nn.CrossEntropyLoss()
 
-    # HyperPar 6: optimizer choice
-    optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "SGD"])
     if optimizer_name == "Adam":
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     else:
         optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
 
     best_val_loss = float('inf')
 
-    # Training cycle (fixed number of epochs for each experiment: max 10)
     for epoch in range(args.tune_epochs):
+        # Fase di Training
         model.train()
         train_losses = []
+        correct_train = 0
+        total_train = 0
+        
         for batch_x, batch_y in train_loader:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device).unsqueeze(1).float()
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device).long()
             
             optimizer.zero_grad()
-            loss = loss_fn(model(batch_x), batch_y)
+            outputs = model(batch_x)
+            loss = loss_fn(outputs, batch_y)
             loss.backward()
             optimizer.step()
-            train_losses.append(loss.item())
             
+            train_losses.append(loss.item())
+            correct_train += (outputs.argmax(dim=1) == batch_y).sum().item()
+            total_train += batch_y.size(0)
+            
+        # Fase di Validazione
         model.eval()
         val_losses = []
+        correct_val = 0
+        total_val = 0
+        
         with torch.no_grad():
             for batch_x, batch_y in valid_loader:
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device).unsqueeze(1).float()
-                val_losses.append(loss_fn(model(batch_x), batch_y).item())
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device).long()
+                outputs = model(batch_x)
+                loss = loss_fn(outputs, batch_y)
+                
+                val_losses.append(loss.item())
+                correct_val += (outputs.argmax(dim=1) == batch_y).sum().item()
+                total_val += batch_y.size(0)
                 
         epoch_train_loss = np.mean(train_losses)
+        epoch_train_acc = correct_train / total_train
         epoch_val_loss = np.mean(val_losses)
+        epoch_val_acc = correct_val / total_val
         
-        # WandB logger
+        # Log corretto su WandB
         wandb.log({
             "epoch": epoch,
-            "train_loss": train_loss,
-            "train_acc": train_acc,
-            "val_loss": val_loss,
-            "val_acc": val_acc,
+            "train_loss": epoch_train_loss,
+            "train_acc": epoch_train_acc,
+            "val_loss": epoch_val_loss,
+            "val_acc": epoch_val_acc,
         })
         
-        # Optuna Pruning
-        trial.report(val_loss, epoch)
+        # Pruning di Optuna se l'esperimento promette male
+        trial.report(epoch_val_loss, epoch)
         if trial.should_prune():
             wandb.finish() 
             raise optuna.exceptions.TrialPruned()
 
-        best_val_loss = min(best_val_loss, val_loss)
+        best_val_loss = min(best_val_loss, epoch_val_loss)
 
     wandb.finish()
-    
     return best_val_loss
 
-#tuniamo per InceptionV4 e Resnet50 separatamente, così da avere due studi indipendenti
-def tune_architecture(arch_name, args):
-    """Runs an independent Optuna study for one backbone."""
-    print(f"\n=== Tuning {arch_name} ===")
-    study = optuna.create_study(
-        direction="minimize",
-        pruner=optuna.pruners.MedianPruner(n_warmup_steps=3),
-    )
-    study.optimize(lambda trial: objective(trial, args, arch_name), n_trials=args.n_trials)
- 
-    print(f"Best hyperparameters for {arch_name}:")
-    for key, value in study.best_trial.params.items():
-        print(f"    {key}: {value}")
-    print(f"Best val loss ({arch_name}): {study.best_value:.4f}")
- 
-    return study.best_trial.params
 
+def run_epoch_final(model, loader, loss_fn, device, optimizer=None):
+    """Funzione di utility per eseguire un'epoca completa (train o eval)."""
+    is_train = optimizer is not None
+    model.train() if is_train else model.eval()
+    
+    losses = []
+    correct = 0
+    total = 0
+    
+    context = torch.enable_grad() if is_train else torch.no_grad()
+    with context:
+        for batch_x, batch_y in loader:
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device).long()
+            
+            if is_train:
+                optimizer.zero_grad()
+                
+            outputs = model(batch_x)
+            loss = loss_fn(outputs, batch_y)
+            
+            if is_train:
+                loss.backward()
+                optimizer.step()
+                
+            losses.append(loss.item())
+            correct += (outputs.argmax(dim=1) == batch_y).sum().item()
+            total += batch_y.size(0)
+            
+    return np.mean(losses), correct / total
 
-# retrain with best hyperparameters for the full number of epochs and save the best model
 
 def train_final_model(arch_name, best_params, args):
-    """Retrains a model with the best hyperparameters for the full number of
-    epochs and checkpoints the best-val-loss weights, for later ensembling."""
+    """Allena il modello finale con i parametri migliori trovati da Optuna."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
  
     train_loader, valid_loader, _ = get_dataloaders(
-        data_dir=args.data_dir, batch_size=best_params["batch_size"]
+        data_path=args.data_path, 
+        img_size=args.img_size, 
+        batch_size=best_params["batch_size"],
+        max_samples=args.max_samples
     )
  
-    model = build_model(arch_name, args.num_classes).to(device)
+    model = build_actual_model(arch_name, num_classes=5).to(device)
     loss_fn = nn.CrossEntropyLoss()
  
     if best_params["optimizer"] == "Adam":
@@ -162,8 +173,7 @@ def train_final_model(arch_name, best_params, args):
         )
     else:
         optimizer = torch.optim.SGD(
-            model.parameters(), lr=best_params["lr"], momentum=0.9,
-            weight_decay=best_params["weight_decay"],
+            model.parameters(), lr=best_params["lr"], momentum=0.9, weight_decay=best_params["weight_decay"]
         )
  
     wandb.init(
@@ -175,12 +185,12 @@ def train_final_model(arch_name, best_params, args):
     )
  
     os.makedirs(args.checkpoint_dir, exist_ok=True)
-    ckpt_path = os.path.join(args.checkpoint_dir, f"{arch_name}_best.pt")
+    ckpt_path = os.path.join(args.checkpoint_dir, f"{arch_name}_best.pth")
     best_val_loss = float("inf")
  
     for epoch in range(args.final_epochs):
-        train_loss, train_acc = run_epoch(model, train_loader, loss_fn, device, optimizer)
-        val_loss, val_acc = run_epoch(model, valid_loader, loss_fn, device, optimizer=None)
+        train_loss, train_acc = run_epoch_final(model, train_loader, loss_fn, device, optimizer)
+        val_loss, val_acc = run_epoch_final(model, valid_loader, loss_fn, device, optimizer=None)
  
         wandb.log({
             "epoch": epoch,
@@ -192,16 +202,15 @@ def train_final_model(arch_name, best_params, args):
  
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), ckpt_path)
+            torch.save({'model_state_dict': model.state_dict()}, ckpt_path)
  
     wandb.finish()
-    print(f"Saved best {arch_name} checkpoint to {ckpt_path} (val_loss={best_val_loss:.4f})")
+    print(f"🎯 Salvato checkpoint ottimo per {arch_name} in {ckpt_path} (val_loss={best_val_loss:.4f})")
     return ckpt_path
 
-# evaluate the ensemble of models on the test set, reporting loss and accuracy
 
 def evaluate_ensemble(models, loader, device):
-    """Averages softmax probabilities across models; reports loss/accuracy."""
+    """Mette insieme i modelli calcolando la media delle probabilità Softmax."""
     for m in models:
         m.eval()
  
@@ -226,38 +235,52 @@ def evaluate_ensemble(models, loader, device):
 
 
 def main(args):
-    
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     best_params = {}
     for arch_name in ARCHITECTURES:
         best_params[arch_name] = tune_architecture(arch_name, args)
 
-    # Retrain each backbone with its own best hyperparameters (full run)
+    # Allena ResNet e Inception singolarmente usando i loro iperparametri ideali
     ckpt_paths = {}
     for arch_name, params in best_params.items():
         ckpt_paths[arch_name] = train_final_model(arch_name, params, args)    
 
+    # Carica i modelli completi per la valutazione dell'Ensemble
     models = []
     for arch_name in ARCHITECTURES:
-        model = build_model(arch_name, args.num_classes).to(device)
-        model.load_state_dict(torch.load(ckpt_paths[arch_name], map_location=device))
+        model = build_actual_model(arch_name, num_classes=5).to(device)
+        checkpoint = torch.load(ckpt_paths[arch_name], map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
         models.append(model)
 
-    _, valid_loader, _ = get_dataloaders(data_dir=args.data_dir, batch_size=64)
+    _, valid_loader, _ = get_dataloaders(data_path=args.data_path, img_size=args.img_size, batch_size=64, max_samples=args.max_samples)
     ens_loss, ens_acc = evaluate_ensemble(models, valid_loader, device)
  
-    print("\n=== Ensemble results (validation set) ===")
-    print(f"Ensemble loss:     {ens_loss:.4f}")
-    print(f"Ensemble accuracy: {ens_acc:.4f}")        
-    
+    print("\n=== 🏆 RISULTATI ENSEMBLE (Validation) ===")
+    print(f"Loss dell'Ensemble:      {ens_loss:.4f}")
+    print(f"Accuratezza dell'Ensemble: {ens_acc:.4f}")        
+
+
+def tune_architecture(arch_name, args):
+    print(f"\n=== Tuning {arch_name} ===")
+    study = optuna.create_study(
+        direction="minimize",
+        pruner=optuna.pruners.MedianPruner(n_warmup_steps=3),
+    )
+    study.optimize(lambda trial: objective(trial, args, arch_name), n_trials=args.n_trials)
+    return study.best_trial.params
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='./data_lab04')
-    parser.add_argument('--tune_epochs', type=int, default=10, help="Epochs for each training (keep low: max 10-15)")
-    parser.add_argument('--n_trials', type=int, default=20, help="Total number of trials")
+    parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/JetTagging/data/jet_images_299.h5')
+    parser.add_argument('--checkpoint_dir', type=str, default='/content/drive/MyDrive/JetTagging/checkpoints')
+    parser.add_argument('--tune_epochs', type=int, default=5, help="Epoche brevi per il tuning")
+    parser.add_argument('--final_epochs', type=int, default=20, help="Epoche per l'addestramento finale serio")
+    parser.add_argument('--n_trials', type=int, default=10, help="Numero di tentativi di tuning")
+    parser.add_argument('--img_size', type=int, default=299)
+    parser.add_argument('--max_samples', type=int, default=20000, help="Limitiamo i sample per non fondere Colab")
     
     args = parser.parse_args()
     main(args)
