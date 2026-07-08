@@ -44,7 +44,7 @@ def objective(trial, args, arch_name):
     
     # Caricamento dati dinamico in base al batch_size proposto da Optuna
     train_loader, valid_loader, _ = get_dataloaders(
-        data_path=args.data_path, 
+        data_filepath=args.data_path,  # Cambia da data_path a data_filepath
         img_size=args.img_size, 
         batch_size=batch_size, 
         max_samples=args.max_samples
