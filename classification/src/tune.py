@@ -102,7 +102,7 @@ def objective(trial, args):
             optimizer.step()
             train_losses.append(loss.item())
             _, predicted = torch.max(outputs.data, 1)
-            correct_train += (predicted == batch_y.squeeze(1)).sum().item()
+            correct_train += (predicted == batch_y).sum().item()
             total_train += batch_y.size(0)
 
         model.eval()
@@ -115,7 +115,7 @@ def objective(trial, args):
                 outputs = model(batch_x)
                 val_losses.append(loss_fn(outputs, batch_y).item())
                 _, predicted = torch.max(outputs.data, 1)
-                correct_val += (predicted == batch_y.squeeze(1)).sum().item()
+                correct_val += (predicted == batch_y).sum().item()
                 total_val += batch_y.size(0)
                 
         epoch_train_loss = np.mean(train_losses)
