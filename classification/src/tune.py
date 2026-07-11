@@ -63,6 +63,8 @@ def objective(trial, args):
     batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
 
+    print(f"\nTrial {trial.number}: lr={lr}, batch_size={batch_size}, weight_decay={weight_decay}")
+
     
     # Initialize WandB: we can use this instead of TensorBoard, for better sharing
     run = wandb.init(
@@ -104,6 +106,7 @@ def objective(trial, args):
             _, predicted = torch.max(outputs.data, 1)
             correct_train += (predicted == batch_y).sum().item()
             total_train += batch_y.size(0)
+        print(f"EPOCH {epoch+1}/{args.tune_epochs} | Train Loss: {np.mean(train_losses):.4f} | Train Acc: {correct_train/total_train:.4f}")
 
         model.eval()
         val_losses = []
@@ -117,7 +120,8 @@ def objective(trial, args):
                 _, predicted = torch.max(outputs.data, 1)
                 correct_val += (predicted == batch_y).sum().item()
                 total_val += batch_y.size(0)
-                
+        print(f"EPOCH {epoch+1}/{args.tune_epochs} | Val Loss: {np.mean(val_losses):.4f} | Val Acc: {correct_val/total_val:.4f}")
+
         epoch_train_loss = np.mean(train_losses)
         epoch_val_loss = np.mean(val_losses)
         epoch_train_acc = correct_train / total_train
@@ -136,10 +140,13 @@ def objective(trial, args):
         trial.report(epoch_val_loss, epoch)
         if trial.should_prune():
             wandb.finish() 
+            print(f"Trial pruned at epoch {epoch+1} with val loss {epoch_val_loss:.4f}")
             raise optuna.exceptions.TrialPruned()
 
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
+    
+    print(f"Trial {trial.number} completed with best val loss: {best_val_loss:.4f}")
 
     wandb.finish()
     
