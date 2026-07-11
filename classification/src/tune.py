@@ -93,7 +93,7 @@ def objective(trial, args):
         correct_train = 0
         total_train = 0
         for batch_x, batch_y in train_dataloader:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device).unsqueeze(1).float()
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
             
             optimizer.zero_grad()
             outputs = model(batch_x)
@@ -111,7 +111,7 @@ def objective(trial, args):
         total_val = 0
         with torch.no_grad():
             for batch_x, batch_y in valid_dataloader:
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device).unsqueeze(1).float()
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                 outputs = model(batch_x)
                 val_losses.append(loss_fn(outputs, batch_y).item())
                 _, predicted = torch.max(outputs.data, 1)
