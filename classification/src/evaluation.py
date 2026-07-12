@@ -14,7 +14,8 @@ from model.resnet import ResNet50
 from model.inception import InceptionV4
 from model.ensemble import EnsembleModel
 
-def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, model_name, num_classes=5):
+def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, model_name, num_classes=5,
+                     class_names=['gluon', 'light quark', 'Top', 'W boson', 'Z boson']):
     model.eval() 
     
     with torch.no_grad(): # Remove gradient computation
@@ -55,7 +56,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
 
         # Confusion matrix
         cm = confusion_matrix(true_labels, pred_labels)
-        class_labels = [str(i) for i in range(num_classes)]
+        class_labels = class_names
         plt.figure(figsize=(8, 6))
         sns.heatmap(cm, annot = True, fmt = 'd', cmap = 'Blues', 
                     xticklabels = class_labels, yticklabels = class_labels)
