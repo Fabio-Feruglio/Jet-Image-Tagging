@@ -78,7 +78,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         for i in range(num_classes):
             fpr, tpr, _ = roc_curve(true_labels_bin[:, i], probs[:, i])
             roc_auc = auc(fpr, tpr)
-            plt.plot(fpr, tpr, lw=2, label=f'Class {i} (AUC = {roc_auc:.3f})')
+            plt.plot(fpr, tpr, lw=2, label=f'{class_names[i]} (AUC = {roc_auc:.3f})')
 
         plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray')
         plt.xlim((0.0, 1.0))
