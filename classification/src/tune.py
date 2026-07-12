@@ -68,7 +68,7 @@ def objective(trial, args):
     print(f"Learning rate: {lr}, Batch size: {batch_size}, Weight decay: {weight_decay}")
     
     # Initialize WandB: we can use this instead of TensorBoard, for better sharing
-    run = wandb.init(
+    wandb.init(
         project = "jet-tagging-tuning",   # Project name
         group = f"optuna-{args.model}",   # group experiment runs
         name = f"trial_{trial.number}",   # name of the run

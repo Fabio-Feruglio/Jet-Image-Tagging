@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+import wandb
 
 from dataset.dataloader import get_dataloaders
 from model.ensemble import EnsembleModel
@@ -73,6 +74,13 @@ def main(args):
     #os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
     # TensorBoard viewer setup
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs'))
+
+    # Wandb setup
+    wandb.init(
+        project="jet-tagging-main",             # Project name
+        name=f"train_ensemble_lr{args.lr}",     # Name for the run
+        config=vars(args)                       # Save  parameters
+    )
     
     
     # Load dataloaders 
@@ -150,6 +158,14 @@ def main(args):
         writer.add_scalar('Accuracy/Validation_ensemble', val_acc, epoch)
         writer.flush()
 
+        wandb.log({
+            "Epoch": epoch,
+            "Loss/Train": train_loss,
+            "Loss/Validation": val_loss,
+            "Accuracy/Train": train_acc,
+            "Accuracy/Validation": val_acc
+        })
+
         checkpoint_dict = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -173,6 +189,8 @@ def main(args):
             break
 
     writer.close()
+    wandb.finish()
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "ensemble_best.pth")}')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Jet Image Classification Trainer")
