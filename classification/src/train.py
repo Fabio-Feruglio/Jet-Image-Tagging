@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+import wandb
 
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
@@ -85,8 +86,16 @@ def main(args):
     # 2. Folders creation
     os.makedirs(args.save_dir, exist_ok=True)
     #os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
+
     # TensorBoard viewer setup
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs'))
+
+    # Wandb setup
+    wandb.init(
+        project="jet-tagging-main",             # Project name
+        name=f"train_{args.mode}_lr{args.lr}",  # Name for the run
+        config=vars(args)                       # Save  parameters
+    )
     
     
     # 3. Load dataloaders 
@@ -145,6 +154,15 @@ def main(args):
         writer.add_scalar('Accuracy/Validation', val_acc, epoch)
         writer.flush()
 
+        # Add values for WandB logger
+        wandb.log({
+            "Epoch": epoch,
+            "Loss/Train": train_loss,
+            "Loss/Validation": val_loss,
+            "Accuracy/Train": train_acc,
+            "Accuracy/Validation": val_acc
+        })
+
         # Save the checkpoint
         checkpoint_dict = {
             'epoch': epoch,
@@ -170,6 +188,7 @@ def main(args):
             break
 
     writer.close()
+    wandb.finish()
     print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"{args.mode}_best.pth")}')
 
 if __name__ == "__main__":
