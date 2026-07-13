@@ -46,7 +46,7 @@ def objective(trial, args):
         group = f"optuna-{args.model}",   # group experiment runs
         name = f"trial_{trial.number}",   # name of the run
         config = trial.params,            # parameters of each experiment
-        reinit = "finish_previous"                   # reinitialize network each time
+        reinit = True                   # reinitialize network each time
     )
     
     # Load the data and build the model
