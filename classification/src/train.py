@@ -163,14 +163,7 @@ def main(args):
             "Accuracy/Validation": val_acc
         })
 
-        # Save the checkpoint
-        checkpoint_dict = {
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'best_val_loss': best_val_loss,
-            'no_improvement_epochs': no_improvement_epochs
-        }
+        
         
         # Save the best model
         torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
@@ -181,6 +174,15 @@ def main(args):
             no_improvement_epochs = 0
         else:
             no_improvement_epochs += 1
+
+        # Save the checkpoint
+        checkpoint_dict = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'best_val_loss': best_val_loss,
+            'no_improvement_epochs': no_improvement_epochs
+        }    
 
         # Early stopping
         if no_improvement_epochs >= patience:

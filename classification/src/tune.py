@@ -13,34 +13,7 @@ from model.inception import InceptionV4
 
 # Example file for tuning with optuna and viewing training loss / validation loss with Wandb
 
-def build_model_example(trial):
-    """
-    Use optuna 'trial' object to define a dynamic model
-    NB: this is an example model: we could use directly the fixed ResNet class
-        eventually modifying it to include some modifiable parameters (e.g. dropout rate)
-    """
-    # HyperPar 1: number of layers at the end of the ResNet
-    n_layers = trial.suggest_int("n_layers", 1, 3)
-    
-    layers = []
-    in_features = 10 
-    
-    for i in range(n_layers):
-        # HyperPar2 2: Neurons for each layer
-        out_features = int(trial.suggest_categorical(f"n_units_l{i}", [16, 32, 64, 128]))
-        layers.append(nn.Linear(in_features, out_features))
-        layers.append(nn.ReLU())
-        
-        # HyperPar 3: Dropout probability
-        dropout_rate = trial.suggest_float(f"dropout_l{i}", 0.1, 0.5)
-        layers.append(nn.Dropout(dropout_rate))
-        
-        in_features = out_features
-        
-    layers.append(nn.Linear(in_features, 1)) # Final layer for binary classification
-    return nn.Sequential(*layers)
-
-def build_model(trial, model_name):
+def build_model(model_name):
     """
     Use optuna 'trial' object to define a dynamic model
     """
@@ -73,7 +46,7 @@ def objective(trial, args):
         group = f"optuna-{args.model}",   # group experiment runs
         name = f"trial_{trial.number}",   # name of the run
         config = trial.params,            # parameters of each experiment
-        reinit = True                     # reinitialize network each time
+        reinit = "finish_previous"                   # reinitialize network each time
     )
     
     # Load the data and build the model
@@ -83,7 +56,7 @@ def objective(trial, args):
                                                             num_workers = min(4, os.cpu_count() or 1),
                                                             max_samples = args.max_samples)
     
-    model = build_model(trial, args.model).to(device)
+    model = build_model(args.model).to(device)
     loss_fn = nn.CrossEntropyLoss()
 
  
