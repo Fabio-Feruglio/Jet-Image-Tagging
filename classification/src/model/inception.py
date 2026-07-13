@@ -358,20 +358,22 @@ class InceptionV4(nn.Module):
 
 
 class InceptionV3(nn.Module):
-    
 
     def __init__(self, num_classes = 5, in_channels = 1):
         super().__init__()
 
-        
+        # 1. Carichiamo il modello lasciando che PyTorch imposti aux_logits=True (altrimenti si arrabbia)
         self.inception_v3 = torch.hub.load(
             'pytorch/vision:v0.10.0', 
             'inception_v3', 
-            pretrained=True, 
-            aux_logits=False
+            pretrained=True
         )
         
+        # 2. TRUCCO: Disattiviamo aux_logits subito DOPO il caricamento. 
+        # Così aggiriamo il controllo e il forward restituirà sempre un singolo tensore pulito.
+        self.inception_v3.aux_logits = False
         
+        # 3. Se le tue immagini hanno 1 solo canale, modifichiamo al volo il primo strato
         if in_channels == 1:
             old_conv = self.inception_v3.Conv2d_1a_3x3.conv
             self.inception_v3.Conv2d_1a_3x3.conv = nn.Conv2d(
@@ -383,9 +385,9 @@ class InceptionV3(nn.Module):
                 bias=old_conv.bias is not None
             )
             
-        
+        # 4. Adattiamo lo strato lineare finale per le tue 5 classi
         self.inception_v3.fc = nn.Linear(self.inception_v3.fc.in_features, num_classes)
 
     def forward(self, x):
-        
+        # Ora, avendo spento aux_logits, questo sputerà un tensore singolo sia in train che in eval
         return self.inception_v3(x)
