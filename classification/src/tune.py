@@ -10,7 +10,7 @@ import numpy as np
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
 from model.inception import InceptionV4
-from model.inception import InceptionV3
+from model.inceptionv3 import InceptionV3
 
 # Example file for tuning with optuna and viewing training loss / validation loss with Wandb
 
