@@ -355,3 +355,37 @@ class InceptionV4(nn.Module):
             torch.nn.init.xavier_uniform_(module.weight)
             if module.bias is not None:
                 module.bias.data.zero_()
+
+
+class InceptionV3(nn.Module):
+    
+
+    def __init__(self, num_classes = 5, in_channels = 1):
+        super().__init__()
+
+        
+        self.inception_v3 = torch.hub.load(
+            'pytorch/vision:v0.10.0', 
+            'inception_v3', 
+            pretrained=True, 
+            aux_logits=False
+        )
+        
+        
+        if in_channels == 1:
+            old_conv = self.inception_v3.Conv2d_1a_3x3.conv
+            self.inception_v3.Conv2d_1a_3x3.conv = nn.Conv2d(
+                in_channels=in_channels, 
+                out_channels=old_conv.out_channels, 
+                kernel_size=old_conv.kernel_size, 
+                stride=old_conv.stride, 
+                padding=old_conv.padding, 
+                bias=old_conv.bias is not None
+            )
+            
+        
+        self.inception_v3.fc = nn.Linear(self.inception_v3.fc.in_features, num_classes)
+
+    def forward(self, x):
+        
+        return self.inception_v3(x)

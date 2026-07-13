@@ -10,6 +10,7 @@ import numpy as np
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
 from model.inception import InceptionV4
+from model.inception import InceptionV3
 
 # Example file for tuning with optuna and viewing training loss / validation loss with Wandb
 
@@ -21,7 +22,7 @@ def build_model(model_name):
         model = ResNet50(num_classes = 5)  
         return model
     elif model_name == "inception":
-        model = InceptionV4(num_classes = 5)  
+        model = InceptionV3(num_classes = 5)  
         return model
     else:
         raise ValueError(f"Model {model_name} not supported.")
