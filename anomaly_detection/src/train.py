@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-# Assicurati che i percorsi di import riflettano la tua repo!
+
 from model.Autoencoder import Encoder, Decoder 
 from dataset import JetH5Dataset
 
@@ -39,7 +39,7 @@ def test_epoch(encoder, decoder, device, dataloader, loss_fn):
             encoded_data = encoder(image_batch)
             decoded_data = decoder(encoded_data)
             
-            # Calcoliamo la loss batch per batch, senza accumulare i tensori
+            
             loss = loss_fn(decoded_data, image_batch)
             losses.append(loss.item())
             
@@ -49,16 +49,15 @@ def main(args):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f'Selected device: {device}')
 
-    # Setup directory di salvataggio
     os.makedirs(args.save_dir, exist_ok=True)
     plot_dir = os.path.join(args.save_dir, f'autoencoder_progress_{args.encoded_space_dim}')
     os.makedirs(plot_dir, exist_ok=True)
 
-    # 1. Istanziamo i modelli usando i parametri di argparse
+    
     encoder = Encoder(encoded_space_dim=args.encoded_space_dim).to(device)
     decoder = Decoder(encoded_space_dim=args.encoded_space_dim).to(device)
 
-    # 2. Setup Ottimizzatore
+    # 2. Setup optimizer and loss function
     params_to_optimize = [
         {'params': encoder.parameters()},
         {'params': decoder.parameters()}
@@ -66,12 +65,12 @@ def main(args):
     optim = torch.optim.Adam(params_to_optimize, lr=args.lr, weight_decay=1e-5)
     loss_fn = torch.nn.MSELoss()
 
-    # 3. Setup Dataset e DataLoader
+    # 3. Setup Dataset and DataLoader
     print(f"Caricamento dataset da: {args.data_path} ...")
-    # Train solo su background
+    # Train only on gluons and quarks (background)
     full_train_dataset = JetH5Dataset(args.data_path, mode='train')
     
-    # Validation su un mix di tutto (per vedere se la loss sale per le anomalie)
+    # Validation on mixed background/anomaly
     test_dataset = JetH5Dataset(args.data_path, mode='test')
     
     train_dataloader = DataLoader(full_train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
@@ -87,7 +86,7 @@ def main(args):
         val_loss = test_epoch(encoder, decoder, device, test_dataloader, loss_fn)
         print(f'VALIDATION (Mix Background/Anomaly) - loss: {val_loss:.6f}\n')
 
-        # Plot progress (prende la prima immagine del test_dataset)
+        # Plot progress 
         img, label = test_dataset[0]
         img = img.unsqueeze(0).to(device)
         
@@ -104,9 +103,9 @@ def main(args):
         
         save_path = os.path.join(plot_dir, f'epoch_{epoch + 1}.jpg')
         fig.savefig(save_path)
-        plt.close(fig) # Chiudi la figura per non intasare Colab
+        plt.close(fig) 
 
-    # Save network parameters nella save_dir specificata
+    # Save network parameters in save_dir specified by user
     torch.save(encoder.state_dict(), os.path.join(args.save_dir, 'encoder_params.pth'))
     torch.save(decoder.state_dict(), os.path.join(args.save_dir, 'decoder_params.pth'))
     print(f"Training completato. Pesi salvati in {args.save_dir}")
