@@ -35,10 +35,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device):
         train_iterator.set_description(f"Train loss: {loss.item():.4f}")
         losses.append(loss.item())
 
-        #train_iterator.set_description(f"Train loss: {loss.detach().cpu().numpy()}")
-        #losses.append(loss.detach().cpu().numpy())
-
-        # Accuracy computation (we have a 5-class classification problem)
+        # Accuracy computation (5-class classification problem)
         pred = torch.argmax(y_pred, dim=1)
         acc = (pred == label_batch).float().mean()
         accuracies.append(acc.item())
@@ -85,7 +82,6 @@ def main(args):
     
     # 2. Folders creation
     os.makedirs(args.save_dir, exist_ok=True)
-    #os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
 
     # TensorBoard viewer setup
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs'))
@@ -94,9 +90,8 @@ def main(args):
     wandb.init(
         project="jet-tagging-main",             # Project name
         name=f"train_{args.mode}_lr{args.lr}",  # Name for the run
-        config=vars(args)                       # Save  parameters
+        config=vars(args)                       # Save parameters
     )
-    
     
     # 3. Load dataloaders 
     train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
@@ -113,13 +108,13 @@ def main(args):
         raise ValueError("Non-supported mode. Please choose 'resnet' or 'inception'.")
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    # 5. Define an optimizer 
-    lr = args.lr # Learning rate
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr,  weight_decay=1e-4)
+    # 5. Define an optimizer (Usando il weight decay dagli argomenti)
+    lr = args.lr 
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
 
     start_epoch = 0
     best_val_loss = float('inf')
-    patience = args.patience # For early stopping
+    patience = args.patience 
     no_improvement_epochs = 0
 
     # Training resume logic
@@ -164,18 +159,6 @@ def main(args):
         })
 
         
-        
-        # Save the best model
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_best.pth'))
-            no_improvement_epochs = 0
-        else:
-            no_improvement_epochs += 1
-
-        # Save the checkpoint
         checkpoint_dict = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -183,6 +166,18 @@ def main(args):
             'best_val_loss': best_val_loss,
             'no_improvement_epochs': no_improvement_epochs
         }    
+
+        
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            
+            checkpoint_dict['best_val_loss'] = best_val_loss
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_best.pth'))
+            no_improvement_epochs = 0
+        else:
+            no_improvement_epochs += 1
 
         # Early stopping
         if no_improvement_epochs >= patience:
@@ -201,6 +196,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization) factor')
     parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
     parser.add_argument('--data_path', type=str, default='./dataset.h5', help='Path to the dataset file')
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
