@@ -8,7 +8,7 @@ import wandb
 
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
-from model.inception import InceptionV3
+from model.inceptionv3 import InceptionV3
 
 ### TRAINING ###
 def train_epoch(model, dataloader, loss_fn, optimizer, device):
