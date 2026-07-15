@@ -8,7 +8,7 @@ import wandb
 
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
-from model.inception import InceptionV4
+from model.inception import InceptionV3
 
 ### TRAINING ###
 def train_epoch(model, dataloader, loss_fn, optimizer, device):
@@ -103,7 +103,7 @@ def main(args):
     if args.mode == 'resnet':
         model = ResNet50().to(device)
     elif args.mode == 'inception':
-        model = InceptionV4().to(device)
+        model = InceptionV3().to(device)
     else:
         raise ValueError("Non-supported mode. Please choose 'resnet' or 'inception'.")
     loss_fn = torch.nn.CrossEntropyLoss()
