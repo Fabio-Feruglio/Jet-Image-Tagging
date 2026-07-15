@@ -389,5 +389,8 @@ class InceptionV3(nn.Module):
         self.inception_v3.fc = nn.Linear(self.inception_v3.fc.in_features, num_classes)
 
     def forward(self, x):
-        # Ora, avendo spento aux_logits, questo sputerà un tensore singolo sia in train che in eval
+    # Se l'input ha 1 solo canale, lo cloniamo su 3 canali per far felice Inception
+        if x.shape[1] == 1:
+            x = x.repeat(1, 3, 1, 1)
+        
         return self.inception_v3(x)
