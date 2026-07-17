@@ -11,8 +11,7 @@ class EnsembleModel(nn.Module):
         self.resnet = ResNet50(num_classes = num_classes)
         self.inception = InceptionV3(num_classes = num_classes)
 
-        self.resnet.out = nn.Identity()
-        self.inception.out = nn.Identity()
+        
 
         if resnet_path and os.path.exists(resnet_path):
             print(f"Load ResNEt weights from {resnet_path}")
@@ -24,9 +23,12 @@ class EnsembleModel(nn.Module):
             checkpoint = torch.load(inception_path, map_location=device)
             self.inception.load_state_dict(checkpoint['model_state_dict'])
 
+        self.resnet.out = nn.Identity()
+        self.inception.out = nn.Identity()    
+
 
         self.fc = nn.Sequential(
-            nn.Linear(2048 + 1536, 512),
+            nn.Linear(2048 + 2048, 512),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(512, num_classes),
