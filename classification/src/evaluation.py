@@ -11,7 +11,7 @@ from sklearn.preprocessing import label_binarize
 
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
-from model.inception import InceptionV4
+from model.inceptionv3 import InceptionV3
 from model.ensemble import EnsembleModel
 
 def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, model_name, num_classes=5,
@@ -111,7 +111,7 @@ def main(args):
     if args.model == 'resnet':
         model = ResNet50().to(device)
     elif args.model == 'inception':
-        model = InceptionV4().to(device)
+        model = InceptionV3().to(device)
     elif args.model == 'ensemble':
         model = EnsembleModel(num_classes = 5, 
                               resnet_path = args.resnet_weights, 
@@ -142,6 +142,8 @@ if __name__ == "__main__":
     parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for evaluation")
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
+    parser.add_argument('--resnet_weights', type=str, default=None, help="Path to trained ResNet50 weights (required for ensemble)")
+    parser.add_argument('--inception_weights', type=str, default=None, help="Path to trained InceptionV3 weights (required for ensemble)")
 
     args = parser.parse_args()
     main(args)
