@@ -38,7 +38,7 @@ def objective(trial, args):
     
     # HyperParameters to be optimized
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log = True)
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
+    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64, 128])
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log = True)
 
     print(f"\nTRIAL {trial.number}\n{'='*40}")
