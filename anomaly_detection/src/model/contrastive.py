@@ -30,3 +30,13 @@ class ContrastiveEncoder(nn.Module):
         x = self.fc(x)
         return self.head(x)
     
+def contrastive_labeled_loss(z_i, z_j, temperature=0.5):
+    batch_size = z_i.size(0)
+    z = torch.cat([z_i, z_j], dim=0)
+    sim_matrix = torch.exp(torch.mm(z, z.t().contiguous()) / temperature)
+    mask = (torch.ones_like(sim_matrix) - torch.eye(2 * batch_size, device=sim_matrix.device)).bool()
+    sim_matrix = sim_matrix.masked_select(mask).view(2 * batch_size, -1)
+    pos_sim = torch.exp(torch.sum(z_i * z_j, dim=-1) / temperature)
+    pos_sim = torch.cat([pos_sim, pos_sim], dim=0)
+    loss = -torch.log(pos_sim / sim_matrix.sum(dim=-1))
+    return loss.mean()
