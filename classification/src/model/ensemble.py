@@ -15,12 +15,12 @@ class EnsembleModel(nn.Module):
 
         if resnet_path and os.path.exists(resnet_path):
             print(f"Load ResNEt weights from {resnet_path}")
-            checkpoint = torch.load(resnet_path, map_location=device)
+            checkpoint = torch.load(resnet_path, map_location=device, weights_only=False)
             self.resnet.load_state_dict(checkpoint['model_state_dict'])
             
         if inception_path and os.path.exists(inception_path):
             print(f"Load Inception weights from {inception_path}")
-            checkpoint = torch.load(inception_path, map_location=device)
+            checkpoint = torch.load(inception_path, map_location=device, weights_only=False)
             self.inception.load_state_dict(checkpoint['model_state_dict'])
 
         self.resnet.out = nn.Identity()
