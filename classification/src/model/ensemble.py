@@ -2,14 +2,14 @@ import os
 import torch
 from torch import nn
 
-from .inception import InceptionV4
+from .inceptionv3 import InceptionV3
 from .resnet import ResNet50
 
 class EnsembleModel(nn.Module):
     def __init__(self, num_classes = 5, resnet_path=None, inception_path=None, device='cpu'):
         super().__init__()
         self.resnet = ResNet50(num_classes = num_classes)
-        self.inception = InceptionV4(num_classes = num_classes)
+        self.inception = InceptionV3(num_classes = num_classes)
 
         self.resnet.out = nn.Identity()
         self.inception.out = nn.Identity()
