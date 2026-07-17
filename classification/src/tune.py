@@ -9,8 +9,8 @@ import numpy as np
 
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
-from model.inception import InceptionV4
 from model.inceptionv3 import InceptionV3
+from model.ensemble import EnsembleModel
 
 # Example file for tuning with optuna and viewing training loss / validation loss with Wandb
 
@@ -23,6 +23,9 @@ def build_model(model_name):
         return model
     elif model_name == "inception":
         model = InceptionV3(num_classes = 5)  
+        return model
+    elif model_name == "ensemble":
+        model = EnsembleModel(num_classes = 5)
         return model
     else:
         raise ValueError(f"Model {model_name} not supported.")
@@ -175,7 +178,7 @@ if __name__ == "__main__":
     parser.add_argument('--tune_epochs', type=int, default=10, help="Epochs for each training (keep low: max 10-15)")
     parser.add_argument('--warmup_epochs', type=int, default=4, help="Warmup epochs for pruning")
     parser.add_argument('--n_trials', type=int, default=20, help="Total number of trials")
-    parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception'], help="Model name")
+    parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception', 'ensemble'], help="Model name")
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     parser.add_argument('--max_samples', type=int, default=20000, help="Maximum number of samples to use for tuning")
     args = parser.parse_args()
