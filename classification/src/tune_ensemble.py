@@ -29,7 +29,7 @@ def objective(trial, args):
     # LR per i backbone (solitamente più basso per non distruggere i pesi pre-addestrati)
     lr_backbone = trial.suggest_float("lr_backbone", 1e-6, 1e-4, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
+    batch_size = trial.suggest_categorical("batch_size", [ 32, 64, 128 ])
     
     # Epoche in cui i backbone rimangono "congelati" (es. da 0 a metà delle epoche totali)
     max_frozen_epochs = max(0, args.tune_epochs // 2)
@@ -54,13 +54,14 @@ def objective(trial, args):
         num_workers=min(4, os.cpu_count() or 1),
         max_samples=args.max_samples
     )
-    
+    dropout = trial.suggest_float("dropout", 0.2, 0.6)
     # Inizializza il modello caricando i pesi se forniti
     model = EnsembleModel(
         num_classes=5, 
         resnet_path=args.resnet_path, 
         inception_path=args.inception_path, 
-        device=device
+        device=device,
+        dropout=dropout
     ).to(device)
     
     loss_fn = nn.CrossEntropyLoss()
@@ -72,21 +73,22 @@ def objective(trial, args):
         {'params': model.fc.parameters(), 'lr': lr_mlp}
     ], weight_decay=weight_decay)
 
+    # ---> AGGIUNGI LO SCALER PER LA MIXED PRECISION <---
+    scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
+
     best_val_loss = float('inf')
 
     for epoch in range(args.tune_epochs):
-        # 3. Logica di Freezing/Unfreezing
+        
         if epoch < frozen_epochs:
-            # Backbone congelati: calcolo gradienti disattivato e modalità eval (per BatchNorm/Dropout)
             set_backbone_trainable(model, False)
             model.resnet.eval()
             model.inception.eval()
-            model.fc.train() # L'MLP finale continua ad addestrarsi
+            model.fc.train()
             status = "FROZEN Backbones"
         else:
-            # Backbone sbloccati per il fine-tuning
             set_backbone_trainable(model, True)
-            model.train() # Tutto in train mode
+            model.train()
             status = "UNFROZEN Backbones (Fine-Tuning)"
 
         train_losses = []
@@ -96,12 +98,33 @@ def objective(trial, args):
         
         for batch_x, batch_y in tqdm(train_dataloader, desc="Training"):
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            
             optimizer.zero_grad()
-            outputs = model(batch_x)
-            loss = loss_fn(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
+            
+            # ---> USA L'AUTOCAST PER VELOCIZZARE LA GPU <---
+            with torch.amp.autocast('cuda' if device.type == 'cuda' else 'cpu'):
+                
+                # ---> VELOCIZZA I BACKBONE CONGELATI <---
+                if epoch < frozen_epochs:
+                    with torch.no_grad(): # Evita di calcolare il grafo se sono congelati
+                        resnet_out = model.resnet(batch_x)
+                        inception_out = model.inception(batch_x)
+                        combined_out = torch.cat((resnet_out, inception_out), dim=1)
+                    # Solo l'MLP finale richiede il grafo
+                    outputs = model.fc(combined_out)
+                else:
+                    # Fine tuning completo
+                    outputs = model(batch_x)
+                
+                loss = loss_fn(outputs, batch_y)
+            
+            # ---> BACKWARD PASS OTTIMIZZATO CON LO SCALER <---
+            if scaler:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
             
             train_losses.append(loss.item())
             _, predicted = torch.max(outputs.data, 1)
@@ -110,7 +133,7 @@ def objective(trial, args):
             
         print(f"Train Loss: {np.mean(train_losses):.4f} | Train Acc: {correct_train/total_train:.4f}")
 
-        # Validation phase
+        # ---> VALIDATION PHASE (Anche qui va usato autocast!) <---
         model.eval()
         val_losses = []
         correct_val = 0
@@ -118,8 +141,12 @@ def objective(trial, args):
         with torch.no_grad():
             for batch_x, batch_y in tqdm(valid_dataloader, desc="Validation"):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                outputs = model(batch_x)
-                val_losses.append(loss_fn(outputs, batch_y).item())
+                
+                with torch.amp.autocast('cuda' if device.type == 'cuda' else 'cpu'):
+                    outputs = model(batch_x)
+                    loss = loss_fn(outputs, batch_y)
+                
+                val_losses.append(loss.item())
                 _, predicted = torch.max(outputs.data, 1)
                 correct_val += (predicted == batch_y).sum().item()
                 total_val += batch_y.size(0)

@@ -6,7 +6,7 @@ from .inceptionv3 import InceptionV3
 from .resnet import ResNet50
 
 class EnsembleModel(nn.Module):
-    def __init__(self, num_classes = 5, resnet_path=None, inception_path=None, device='cpu'):
+    def __init__(self, num_classes = 5, resnet_path=None, inception_path=None, device='cpu',dropout=0.5):
         super().__init__()
         self.resnet = ResNet50(num_classes = num_classes)
         self.inception = InceptionV3(num_classes = num_classes)
@@ -30,7 +30,7 @@ class EnsembleModel(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(2048 + 2048, 512),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout),
             nn.Linear(512, num_classes),
         )
 
