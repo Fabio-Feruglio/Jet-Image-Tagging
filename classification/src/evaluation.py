@@ -116,7 +116,8 @@ def main(args):
         model = EnsembleModel(num_classes = 5, 
                               resnet_path = args.resnet_weights, 
                               inception_path = args.inception_weights, 
-                              device = str(device)).to(device)
+                              weights_device = str(device),
+                              hidden_layer_size = args.hidden_layer_size).to(device)
     else:
         raise ValueError("Invalid model type. Choose from 'resnet', 'inception', or 'ensemble'.")
     
@@ -144,6 +145,7 @@ if __name__ == "__main__":
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     parser.add_argument('--resnet_weights', type=str, default=None, help="Path to trained ResNet50 weights (required for ensemble)")
     parser.add_argument('--inception_weights', type=str, default=None, help="Path to trained InceptionV3 weights (required for ensemble)")
+    parser.add_argument('--hidden_layer_size', type=int, default=512, help="Hidden layer size for the ensemble model")
 
     args = parser.parse_args()
     main(args)
