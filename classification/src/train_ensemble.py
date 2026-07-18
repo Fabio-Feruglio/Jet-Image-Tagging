@@ -9,9 +9,20 @@ import wandb
 from dataset.dataloader import get_dataloaders
 from model.ensemble import EnsembleModel
 
+def set_backbone_trainable(model, trainable: bool):
+    """
+    Activate or deactivate the training of the backbone models.
+    """
+    for param in model.resnet.parameters():
+        param.requires_grad = trainable
+    for param in model.inception.parameters():
+        param.requires_grad = trainable
 
 ### TRAINING ###
-def train_epoch(model, dataloader, loss_fn, optimizer, device):
+def train_epoch(model, dataloader, loss_fn, optimizer, device, scaler=None):
+    """
+    Train the model for one epoch.
+    """
     model.train()
     losses = []
     accuracies = []
@@ -20,12 +31,20 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device):
     for x_batch, label_batch in train_iterator:
         x_batch, label_batch = x_batch.to(device), label_batch.to(device)
 
-        y_pred = model(x_batch) 
-        loss = loss_fn(y_pred, label_batch) 
+        with torch.amp.autocast('cuda' if device.type == 'cuda' else 'cpu'):
+            y_pred = model(x_batch)
+            loss = loss_fn(y_pred, label_batch)
 
         optimizer.zero_grad() 
-        loss.backward() 
-        optimizer.step()  
+        if scaler:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            scaler.zero_grad()
+        else:
+            loss.backward()
+            optimizer.step()
+         
 
         train_iterator.set_description(f"Train loss: {loss.item():.4f}")
         losses.append(loss.item())
@@ -33,12 +52,17 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device):
         pred = torch.argmax(y_pred, dim=1)
         acc = (pred == label_batch).float().mean()
         accuracies.append(acc.item())
-
-    return np.mean(losses), np.mean(accuracies)
+    avg_loss = np.mean(losses)
+    avg_acc = np.mean(accuracies)
+    print(f"Train Loss: {avg_loss:.4f} | Train Accuracy: {avg_acc:.4f}")
+    return avg_loss, avg_acc
 
 
 ### VALIDATION ###
 def val_epoch(model, dataloader, loss_fn, device):
+    """
+    Validate the model for one epoch.
+    """
     model.eval()
     losses = []
     accuracies = []
@@ -48,8 +72,9 @@ def val_epoch(model, dataloader, loss_fn, device):
         for x_batch, label_batch in val_iterator:
             x_batch, label_batch = x_batch.to(device), label_batch.to(device)
 
-            y_pred = model(x_batch)
-            loss = loss_fn(y_pred, label_batch)
+            with torch.amp.autocast('cuda' if device.type == 'cuda' else 'cpu'):
+                y_pred = model(x_batch)
+                loss = loss_fn(y_pred, label_batch)
 
             pred = torch.argmax(y_pred, dim=1)
             acc = (pred == label_batch).float().mean()
@@ -71,7 +96,7 @@ def main(args):
     
     # Folders creation
     os.makedirs(args.save_dir, exist_ok=True)
-    #os.makedirs(os.path.join(args.save_dir, 'images'), exist_ok=True)
+    
     # TensorBoard viewer setup
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs'))
 
@@ -79,31 +104,41 @@ def main(args):
     wandb.init(
         project="jet-tagging-main",             # Project name
         name=f"train_ensemble_lr{args.lr}",     # Name for the run
-        config=vars(args)                       # Save  parameters
+        config=vars(args)                       # Save parameters
     )
     
     
     # Load dataloaders 
-    train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
-                                                            img_size = args.img_size, batch_size = args.batch_size, 
-                                                            num_workers = min(4, os.cpu_count() or 1),
-                                                            max_samples = args.max_samples)
+    train_dataloader, valid_dataloader, _ = get_dataloaders(
+        data_filepath = args.data_path, 
+        img_size = args.img_size, batch_size = args.batch_size, 
+        num_workers = min(4, os.cpu_count() or 1),
+        max_samples = args.max_samples
+    )
     
-    model = EnsembleModel(num_classes = 5, 
-                          resnet_path = args.resnet_weights, 
-                          inception_path = args.inception_weights, 
-                          device = str(device)).to(device)
+    model = EnsembleModel(
+        num_classes = 5, 
+        resnet_path = args.resnet_weights, 
+        inception_path = args.inception_weights, 
+        weights_device = str(device),
+        hidden_layer_size = args.hidden_layer_size,
+        dropout_mlp = args.dropout_mlp
+        ).to(device)
     
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    # Freeze the backbone and train only final head for warmup epochs
-    for param in model.resnet.parameters(): 
-        param.requires_grad = False
-    for param in model.inception.parameters(): 
-        param.requires_grad = False
+    scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
 
-    optimizer = torch.optim.Adam(model.fc.parameters(), lr=args.lr)
-    warmup_epochs = 3 
+    # Freeze the backbone and train only final head for warmup epochs
+    set_backbone_trainable(model, trainable=False)
+
+    optimizer = torch.optim.Adam([
+        {'params': model.resnet.parameters(), 'lr': args.lr_backbone},
+        {'params': model.inception.parameters(), 'lr': args.lr_backbone},
+        {'params': model.fc.parameters(), 'lr': args.lr_mlp}
+        ], weight_decay = args.weight_decay)
+    
+    warmup_epochs = args.warmup_epochs
     warmup_stage = True
 
     best_val_loss = float('inf')
@@ -130,26 +165,18 @@ def main(args):
         else:
             print(f"No file found in '{args.resume_from}', starting from epoch = 0.")
 
+
+    # Main training loop
     for epoch in range(start_epoch, args.epochs):
-        
+
         # After warmup epochs, unfreeze the backbone for fine-tuning
         if warmup_stage and epoch == warmup_epochs:
             print("\n Warm-up completed... Now unfreezing the backbone for fine-tuning.")
-            for param in model.resnet.parameters():
-                param.requires_grad = True
-            for param in model.inception.parameters():
-                param.requires_grad = True
-            
-            # Different lr for backbone and final head
-            optimizer = torch.optim.Adam([
-                {'params': model.resnet.parameters(), 'lr': args.lr * 0.1},
-                {'params': model.inception.parameters(), 'lr': args.lr * 0.1},
-                {'params': model.fc.parameters(), 'lr': args.lr}
-            ])
+            set_backbone_trainable(model, trainable=True)
             warmup_stage = False
 
         print(f'\nEPOCH {epoch+1}/{args.epochs} [{args.mode.upper()}]')
-        train_loss, train_acc = train_epoch(model, train_dataloader, loss_fn, optimizer, device)
+        train_loss, train_acc = train_epoch(model, train_dataloader, loss_fn, optimizer, device, scaler=scaler)
         val_loss, val_acc = val_epoch(model, valid_dataloader, loss_fn, device)
 
         writer.add_scalar('Loss/Train_ensemble', train_loss, epoch)
@@ -200,12 +227,17 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--img_size', type=int, default=299)
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--lr_mlp', type=float, default=1e-3)
+    parser.add_argument('--lr_backbone', type=float, default=1e-4)
     parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
     parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
     parser.add_argument('--data_path', type=str, default='./dataset.h5')
     parser.add_argument('--save_dir', type=str, default='./checkpoints')
     parser.add_argument('--resume_from', type=str, default=None)
+    parser.add_argument('--warmup_epochs', type=int, default=3)
+    parser.add_argument('--hidden_layer_size', type=int, default=512, help='Hidden layer size for the final MLP')
+    parser.add_argument('--dropout_mlp', type=float, default=0.5, help='Dropout rate for the final MLP')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay for the optimizer')
 
     args = parser.parse_args()
     main(args)
