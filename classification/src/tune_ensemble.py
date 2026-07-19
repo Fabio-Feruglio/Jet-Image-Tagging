@@ -7,13 +7,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-# Assicurati che questi import puntino ai percorsi corretti nel tuo progetto
 from dataset.dataloader import get_dataloaders
 from model.ensemble import EnsembleModel
 
 def set_backbone_trainable(model, trainable: bool):
     """
-    Attiva o disattiva il calcolo dei gradienti per i backbone.
+    Activate or deactivate the training of the backbone models.
     """
     for param in model.resnet.parameters():
         param.requires_grad = trainable
@@ -23,57 +22,55 @@ def set_backbone_trainable(model, trainable: bool):
 def objective(trial, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 1. HyperParameters specifici per l'Ensemble
-    # LR per i layer finali (solitamente più alto perché partono da zero)
-    lr_mlp = trial.suggest_float("lr_mlp", 1e-4, 1e-2, log=True)
-    # LR per i backbone (solitamente più basso per non distruggere i pesi pre-addestrati)
-    lr_backbone = trial.suggest_float("lr_backbone", 1e-6, 1e-4, log=True)
-    weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [ 32, 64, 128 ])
+    # Hyperparameters
+    dropout = trial.suggest_float("dropout", 0.2, 0.6)                                          # Dropout rate for the final MLP
+    hidden_layer_size = trial.suggest_categorical("hidden_layer_size", [128, 256, 512, 1024])   # Hidden layer size for the final MLP
+    lr_mlp = trial.suggest_categorical("lr_mlp", [1e-4, 1e-3, 1e-2])                            # LR for final mlp
+    lr_backbone = trial.suggest_categorical("lr_backbone", [1e-6, 1e-5, 1e-4])                  # LR for backbone models (ResNet and Inception)
+    weight_decay = trial.suggest_categorical("weight_decay", [1e-6, 1e-5, 1e-4, 1e-3, 1e-2])    # Weight decay for the optimizer
+    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])                         # Batch size for training and validation
+    frozen_epochs = trial.suggest_int("frozen_epochs", 0, 5)                                    # Number of epochs to freeze the backbone models before fine-tuning
     
-    # Epoche in cui i backbone rimangono "congelati" (es. da 0 a metà delle epoche totali)
-    max_frozen_epochs = max(0, args.tune_epochs // 2)
-    frozen_epochs = trial.suggest_int("frozen_epochs", 0, max_frozen_epochs)
 
     print(f"\nTRIAL {trial.number}\n{'='*40}")
+    print("Hyperparameters:")
+    print(f"Dropout: {dropout:.2f}, Hidden Layer Size: {hidden_layer_size}")
     print(f"LR MLP: {lr_mlp:.6f}, LR Backbone: {lr_backbone:.6f}")
-    print(f"Batch size: {batch_size}, Frozen Epochs: {frozen_epochs}")
+    print(f"Weight Decay: {weight_decay:.6f}, Batch size: {batch_size}, Frozen Epochs: {frozen_epochs}")
     
     wandb.init(
-        project="jet-tagging-tuning",
-        group="optuna-ensemble",
-        name=f"trial_{trial.number}",
-        config=trial.params,
-        reinit=True
+        project = "jet-tagging-tuning",
+        group = "optuna-ensemble",
+        name = f"trial_{trial.number}",
+        config = trial.params,
+        reinit = True
     )
     
     train_dataloader, valid_dataloader, _ = get_dataloaders(
-        data_filepath=args.data_path, 
-        img_size=args.img_size, 
-        batch_size=batch_size, 
-        num_workers=min(4, os.cpu_count() or 1),
-        max_samples=args.max_samples
+        data_filepath = args.data_path, 
+        img_size = args.img_size, 
+        batch_size = batch_size, 
+        num_workers = min(4, os.cpu_count() or 1),
+        max_samples = args.max_samples
     )
-    dropout = trial.suggest_float("dropout", 0.2, 0.6)
-    # Inizializza il modello caricando i pesi se forniti
+    
     model = EnsembleModel(
-        num_classes=5, 
-        resnet_path=args.resnet_path, 
-        inception_path=args.inception_path, 
-        device=device,
-        dropout=dropout
+        num_classes = 5, 
+        resnet_path = args.resnet_path, 
+        inception_path = args.inception_path, 
+        weights_device = str(device),
+        dropout_mlp = dropout,
+        hidden_layer_size = hidden_layer_size
     ).to(device)
     
     loss_fn = nn.CrossEntropyLoss()
 
-    # 2. Parameter Groups: assegniamo i learning rate separati
     optimizer = torch.optim.Adam([
         {'params': model.resnet.parameters(), 'lr': lr_backbone},
         {'params': model.inception.parameters(), 'lr': lr_backbone},
         {'params': model.fc.parameters(), 'lr': lr_mlp}
-    ], weight_decay=weight_decay)
+    ], weight_decay = weight_decay)
 
-    # ---> AGGIUNGI LO SCALER PER LA MIXED PRECISION <---
     scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
 
     best_val_loss = float('inf')
@@ -85,39 +82,40 @@ def objective(trial, args):
             model.resnet.eval()
             model.inception.eval()
             model.fc.train()
-            status = "FROZEN Backbones"
+            status = "Frozen Backbones"
         else:
             set_backbone_trainable(model, True)
             model.train()
-            status = "UNFROZEN Backbones (Fine-Tuning)"
+            status = "Fine-Tuning"
 
         train_losses = []
         correct_train = 0
         total_train = 0
         print(f"\nEPOCH {epoch+1}/{args.tune_epochs} [{status}]")
-        
-        for batch_x, batch_y in tqdm(train_dataloader, desc="Training"):
+
+        ### TRAINING LOOP
+        for batch_x, batch_y in tqdm(train_dataloader, desc = "Training"):
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            optimizer.zero_grad()
             
-            # ---> USA L'AUTOCAST PER VELOCIZZARE LA GPU <---
+            
             with torch.amp.autocast('cuda' if device.type == 'cuda' else 'cpu'):
                 
-                # ---> VELOCIZZA I BACKBONE CONGELATI <---
+                
                 if epoch < frozen_epochs:
-                    with torch.no_grad(): # Evita di calcolare il grafo se sono congelati
+                    with torch.no_grad(): # Avoid computing gradients for the backbone models during frozen epochs
                         resnet_out = model.resnet(batch_x)
                         inception_out = model.inception(batch_x)
                         combined_out = torch.cat((resnet_out, inception_out), dim=1)
-                    # Solo l'MLP finale richiede il grafo
+                    # Only compute gradients for the final MLP during frozen epochs
                     outputs = model.fc(combined_out)
                 else:
-                    # Fine tuning completo
+                    # Fine tuning
                     outputs = model(batch_x)
                 
                 loss = loss_fn(outputs, batch_y)
             
-            # ---> BACKWARD PASS OTTIMIZZATO CON LO SCALER <---
+            # Backward pass and optimization step with mixed precision if available
+            optimizer.zero_grad()
             if scaler:
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
@@ -133,13 +131,13 @@ def objective(trial, args):
             
         print(f"Train Loss: {np.mean(train_losses):.4f} | Train Acc: {correct_train/total_train:.4f}")
 
-        # ---> VALIDATION PHASE (Anche qui va usato autocast!) <---
+        ### VALIDATION LOOP
         model.eval()
         val_losses = []
         correct_val = 0
         total_val = 0
         with torch.no_grad():
-            for batch_x, batch_y in tqdm(valid_dataloader, desc="Validation"):
+            for batch_x, batch_y in tqdm(valid_dataloader, desc = "Validation"):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                 
                 with torch.amp.autocast('cuda' if device.type == 'cuda' else 'cpu'):
@@ -162,7 +160,7 @@ def objective(trial, args):
             "train_acc": correct_train / total_train,
             "val_loss": epoch_val_loss,
             "val_acc": correct_val / total_val,
-            "backbone_status": 0 if epoch < frozen_epochs else 1 # 0=Frozen, 1=Unfrozen
+            "backbone_status": 0 if epoch < frozen_epochs else 1 # 0 = Frozen, 1 = Unfrozen
         })
         
         # Optuna Pruning
@@ -196,14 +194,14 @@ def main(args):
         pruner=optuna.pruners.MedianPruner(n_warmup_steps=args.warmup_epochs)
     )
     
-    print(f"Trials già completati: {len(study.trials)}")
+    print(f"Already completed trials: {len(study.trials)}")
     study.optimize(lambda trial: objective(trial, args), n_trials=args.n_trials)
     
-    print("\nLa migliore combinazione di iperparametri è:\n")
+    print("The best hyperparameter combination is:\n")
     for key, value in study.best_trial.params.items():
         print(f"    {key}: {value}")
         
-    print(f"\nBest validation loss: {study.best_value:.4f}")
+    print(f"Best validation loss: {study.best_value:.4f}")
 
     best_params_file = os.path.join(args.save_dir, "best_hyperparams_ensemble.txt")
     with open(best_params_file, "w") as f:
@@ -217,11 +215,11 @@ if __name__ == "__main__":
     parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/JetTagging/data/jet_images_299.h5')
     parser.add_argument('--save_dir', type=str, default='/content/drive/MyDrive/JetTagging/optuna_logs')
     
-    parser.add_argument('--resnet_path', type=str, default=None, help='Path ai pesi preaddestrati di ResNet')
-    parser.add_argument('--inception_path', type=str, default=None, help='Path ai pesi preaddestrati di Inception')
+    parser.add_argument('--resnet_path', type=str, default=None, help='Path to pre-trained ResNet weights')
+    parser.add_argument('--inception_path', type=str, default=None, help='Path to pre-trained Inception weights')
     
     parser.add_argument('--tune_epochs', type=int, default=15, help="Epochs for each training")
-    parser.add_argument('--warmup_epochs', type=int, default=4, help="Warmup epochs for pruning")
+    parser.add_argument('--warmup_epochs', type=int, default=6, help="Warmup epochs for pruning")
     parser.add_argument('--n_trials', type=int, default=20, help="Total number of trials")
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     parser.add_argument('--max_samples', type=int, default=20000, help="Maximum number of samples")

@@ -231,7 +231,7 @@ class InceptionV3(nn.Module):
         
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.drop = nn.Dropout(p=0.5) 
-        self.out = nn.Linear(2048, num_classes) 
+        self.out: nn.Module = nn.Linear(2048, num_classes) 
 
     def forward(self, x):
         x = self.stem(x)

@@ -1,13 +1,35 @@
 import torch
 from torch import nn
 from ....classification.src.model.ensemble import EnsembleModel
+from ....classification.src.model.resnet import ResNet50
 
-
-class VEnconder_Ensemble(nn.Module):
-    def __init__(self, encoded_space_dim, base_channels=8):
+class Vencoder_Light(nn.Module):
+    def __init__(self, encoded_space_dim):
         super().__init__()
 
-        self.Vencoder = EnsembleModel(num_classes=512)
+        resnet_output = 2048
+        self.Vencoder = ResNet50(num_classes=resnet_output)
+        self.Vencoder.fc = nn.Sequential(
+            nn.Linear(resnet_output, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 512),
+            nn.ReLU()
+        )
+        self.fc_mu = nn.Linear(in_features=512, out_features=encoded_space_dim)
+        self.fc_var = nn.Linear(in_features=512, out_features=encoded_space_dim)
+
+    def forward(self, x):
+        x = self.Vencoder(x)
+        mu = self.fc_mu(x)
+        var = self.fc_var(x)
+        return mu, var
+
+class VEnconder_Ensemble(nn.Module):
+    def __init__(self, encoded_space_dim):
+        super().__init__()
+
+        self.Vencoder = EnsembleModel()
         self.Vencoder.fc = nn.Sequential(
             nn.Linear(2048 + 1536, 512),
             nn.ReLU(),

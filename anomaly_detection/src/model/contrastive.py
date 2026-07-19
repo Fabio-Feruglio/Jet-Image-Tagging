@@ -1,11 +1,36 @@
 import torch
 from torch import nn
 from ....classification.src.model.ensemble import EnsembleModel
+from ....classification.src.model.resnet import ResNet50
+
+class ContrastiveEncoder_Light(nn.Module):
+    def __init__(self, repr_space_dim, latent_space_dim):
+        super().__init__()
+
+        resnet_output = 2048
+        self.encoder = ResNet50(num_classes=resnet_output)
+        self.encoder.fc = nn.Sequential(
+            nn.Linear(resnet_output, resnet_output),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(resnet_output, repr_space_dim), 
+        )
+        
+        self.head = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(repr_space_dim, repr_space_dim),
+            nn.ReLU(),
+            nn.Linear(repr_space_dim, latent_space_dim)
+        )
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.fc(x)
+        return self.head(x)
 
 
 class ContrastiveEncoder(nn.Module):
     def __init__(self, repr_space_dim, latent_space_dim):
-        super().__init__()
         super().__init__()
 
         self.encoder = EnsembleModel()
@@ -20,9 +45,9 @@ class ContrastiveEncoder(nn.Module):
         
         self.head = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(repr_space_dim, 256),
+            nn.Linear(repr_space_dim, repr_space_dim),
             nn.ReLU(),
-            nn.Linear(256, latent_space_dim)
+            nn.Linear(repr_space_dim, latent_space_dim)
         )
 
     def forward(self, x):
