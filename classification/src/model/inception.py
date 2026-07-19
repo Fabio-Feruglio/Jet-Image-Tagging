@@ -357,6 +357,7 @@ class InceptionV4(nn.Module):
                 module.bias.data.zero_()
 
 
+"""
 class InceptionV3(nn.Module):
 
     def __init__(self, num_classes = 5, in_channels = 1):
@@ -394,3 +395,4 @@ class InceptionV3(nn.Module):
             x = x.repeat(1, 3, 1, 1)
         
         return self.inception_v3(x)
+"""
