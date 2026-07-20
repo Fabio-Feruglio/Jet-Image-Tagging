@@ -86,7 +86,7 @@ class VDecoder_Ensemble(nn.Module):
             nn.ConvTranspose2d(c, 1, kernel_size=3, stride=2, padding=1, output_padding=0),
         )
 
-        def forward(self, x):
+    def forward(self, x):
             x = self.Vdecoder_lin(x)
             x = self.unflatten(x)
             x = self.Vdecoder_deconv(x)
