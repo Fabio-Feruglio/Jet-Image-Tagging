@@ -1,0 +1,82 @@
+import os
+import torch
+from torch import nn
+
+from .inceptionv3 import InceptionV3
+from .resnet import ResNet50
+from .resnet import ResNet_Light
+from .inceptionv3 import InceptionV3_Light
+
+class EnsembleModel(nn.Module):
+    def __init__(self, num_classes = 5, resnet_path = None, inception_path = None, weights_device = 'cpu', hidden_layer_size = 512, dropout_mlp = 0.5):
+        super().__init__()
+        self.resnet = ResNet50(num_classes = num_classes)
+        self.inception = InceptionV3(num_classes = num_classes)
+
+        if resnet_path and os.path.exists(resnet_path):
+            print(f"Load ResNet weights from {resnet_path}")
+            checkpoint = torch.load(resnet_path, map_location = weights_device, weights_only = False)
+            self.resnet.load_state_dict(checkpoint['model_state_dict'])
+            
+        if inception_path and os.path.exists(inception_path):
+            print(f"Load Inception weights from {inception_path}")
+            checkpoint = torch.load(inception_path, map_location = weights_device, weights_only = False)
+            self.inception.load_state_dict(checkpoint['model_state_dict'])
+
+        self.resnet.out = nn.Identity()
+        self.inception.out = nn.Identity()    
+
+
+        self.fc = nn.Sequential(
+            nn.Linear(2048 + 2048, hidden_layer_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_mlp),
+            nn.Linear(hidden_layer_size, num_classes),
+        )
+
+    def forward(self, x):
+        resnet_out = self.resnet(x)
+        inception_out = self.inception(x)
+        combined_out = torch.cat((resnet_out, inception_out), dim=1)
+        final_out = self.fc(combined_out)
+
+        return final_out
+
+
+class EnsembleModel_Light(nn.Module):
+    #Reduced default hidden layer size to 256 to reduce the number of parameters
+    def __init__(self, num_classes = 5, resnet_path = None, inception_path = None, weights_device = 'cpu', hidden_layer_size = 256, dropout_mlp = 0.5):
+        super().__init__()
+        self.resnet = ResNet_Light(num_classes = num_classes)
+        self.inception = InceptionV3_Light(num_classes = num_classes)
+
+        if resnet_path and os.path.exists(resnet_path):
+            print(f"Load ResNet weights from {resnet_path}")
+            checkpoint = torch.load(resnet_path, map_location = weights_device, weights_only = False)
+            self.resnet.load_state_dict(checkpoint['model_state_dict'])
+            
+        if inception_path and os.path.exists(inception_path):
+            print(f"Load Inception weights from {inception_path}")
+            checkpoint = torch.load(inception_path, map_location = weights_device, weights_only = False)
+            self.inception.load_state_dict(checkpoint['model_state_dict'])
+
+        self.resnet.out = nn.Identity()
+        self.inception.out = nn.Identity()    
+
+
+        self.fc = nn.Sequential(
+            nn.Linear(2048 + 2048, hidden_layer_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_mlp),
+            nn.Linear(hidden_layer_size, num_classes),
+        )
+
+    def forward(self, x):
+        resnet_out = self.resnet(x)
+        inception_out = self.inception(x)
+        combined_out = torch.cat((resnet_out, inception_out), dim=1)
+        final_out = self.fc(combined_out)
+
+        return final_out
+    
+    
