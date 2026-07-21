@@ -33,7 +33,7 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         label_batch = label_batch.to(device)
 
         # Forward pass
-        mu, log_var = encoded = encoder(x_batch)
+        mu, log_var = encoder(x_batch)
         z = VAE_Ensemble_Light.reparameterize(mu, log_var)
         reconstructed_x = decoder(z)
 
@@ -216,6 +216,7 @@ if __name__ == "__main__":
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
     parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
     parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
+    parser.add_argument('--encoded_space_dim', type=int, default=128, help='Dimension of the encoded space')
 
     args = parser.parse_args()
     main(args)
