@@ -101,10 +101,21 @@ def main(args):
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs'))
 
     # Wandb setup
+    wandb_run_id = None
+    if args.resume_from and os.path.isfile(args.resume_from):
+        print(f"Sbircio nel checkpoint '{args.resume_from}' per recuperare l'ID di WandB...")
+        temp_checkpoint = torch.load(args.resume_from, map_location='cpu', weights_only=False)
+        if 'wandb_run_id' in temp_checkpoint:
+            wandb_run_id = temp_checkpoint['wandb_run_id']
+            print(f"ID recuperato con successo: {wandb_run_id}")
+
+    # Wandb setup
     wandb.init(
-        project="jet-tagging-main",             # Project name
-        name=f"train_ensemble_mlp{args.lr_mlp}_bb{args.lr_backbone}",    # Name for the run
-        config=vars(args)                       # Save parameters
+        project="jet-tagging-main",                 # Project name
+        name=f"train_ensemble_lr{args.lr_mlp}",     # Name for the run
+        config=vars(args),                          # Save parameters
+        id=wandb_run_id,                            # Passa l'ID (None se si parte da zero)
+        resume="allow"                              # Consente di riprendere la run esistente
     )
     
     
@@ -199,7 +210,8 @@ def main(args):
             'optimizer_state_dict': optimizer.state_dict(),
             'best_val_loss': best_val_loss,
             'no_improvement_epochs': no_improvement_epochs,
-            'warmup_stage': warmup_stage
+            'warmup_stage': warmup_stage,
+            'wandb_run_id': wandb.run.id
         }
         
         torch.save(checkpoint_dict, os.path.join(args.save_dir, 'ensemble_latest.pth'))
