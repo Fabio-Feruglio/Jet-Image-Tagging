@@ -31,11 +31,11 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         label_batch = label_batch.to(device)
 
         # Forward pass
-        encoded = encoder(x_batch)
+        encoded, mu, log_var = encoder(x_batch)
         reconstructed_x = decoder(encoded)
 
         # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch) 
+        loss = loss_fn(reconstructed_x, x_batch, mu, log_var) 
 
         # Backward pass
         optimizer.zero_grad() 
@@ -63,9 +63,9 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
             x_batch = x_batch.to(device)
             label_batch = label_batch.to(device)
 
-            encoded = encoder(x_batch)
+            encoded, mu, log_var = encoder(x_batch)
             reconstructed_x = decoder(encoded)
-            loss = loss_fn(reconstructed_x, x_batch)
+            loss = loss_fn(reconstructed_x, x_batch, mu, log_var)
 
             losses.append(loss.item())
             
