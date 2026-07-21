@@ -103,7 +103,7 @@ def main(args):
     # Wandb setup
     wandb.init(
         project="jet-tagging-main",             # Project name
-        name=f"train_ensemble_lr{args.lr}",     # Name for the run
+        name=f"train_ensemble_mlp{args.lr_mlp}_bb{args.lr_backbone}",    # Name for the run
         config=vars(args)                       # Save parameters
     )
     
