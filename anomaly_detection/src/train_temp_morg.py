@@ -7,14 +7,14 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 
 from dataset.dataloader import get_dataloaders
-from model.resnet import ResNet50
-from model.inceptionv3 import InceptionV3
+from model.other_models_attempt.autoencoder import Encoder, Decoder
+
 
 ### TRAINING ###
-def train_epoch(model, dataloader, loss_fn, optimizer, device):
-    model.train()
+def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
+    encoder.train()
+    decoder.train()
     losses = []
-    accuracies = []
 
     train_iterator = tqdm(dataloader)
     for x_batch, label_batch in train_iterator:
@@ -22,10 +22,11 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device):
         label_batch = label_batch.to(device)
 
         # Forward pass
-        y_pred = model(x_batch) 
+        encoded = encoder(x_batch)
+        reconstructed_x = decoder(encoded)
 
         # Loss computation
-        loss = loss_fn(y_pred, label_batch) 
+        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
 
         # Backward pass
         optimizer.zero_grad() 
@@ -35,21 +36,16 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device):
         train_iterator.set_description(f"Train loss: {loss.item():.4f}")
         losses.append(loss.item())
 
-        # Accuracy computation (5-class classification problem)
-        pred = torch.argmax(y_pred, dim=1)
-        acc = (pred == label_batch).float().mean()
-        accuracies.append(acc.item())
-
     avg_loss = np.mean(losses)
-    avg_acc = np.mean(accuracies)
-    return avg_loss, avg_acc
+
+    return avg_loss
 
 
 ### VALIDATION ###
-def val_epoch(model, dataloader, loss_fn, device):
-    model.eval()
+def val_epoch(encoder, decoder, dataloader, loss_fn, device):
+    encoder.eval()
+    decoder.eval()
     losses = []
-    accuracies = []
 
     with torch.no_grad():
         val_iterator = tqdm(dataloader)
@@ -58,33 +54,30 @@ def val_epoch(model, dataloader, loss_fn, device):
             x_batch = x_batch.to(device)
             label_batch = label_batch.to(device)
 
-            y_pred = model(x_batch)
-            loss = loss_fn(y_pred, label_batch)
+            encoded = encoder(x_batch)
+            reconstructed_x = decoder(encoded)
+            loss = loss_fn(reconstructed_x, x_batch)
 
-            pred = torch.argmax(y_pred, dim=1)
-            acc = (pred == label_batch).float().mean()
             losses.append(loss.item())
-            accuracies.append(acc.item())
             
             val_iterator.set_description(f"Val loss: {loss.item():.4f}")
             
     avg_loss = np.mean(losses)
-    avg_acc = np.mean(accuracies)
     
-    print(f"Validation Loss: {avg_loss:.4f} | Validation Accuracy: {avg_acc:.4f}")
-    return avg_loss, avg_acc
+    print(f"Validation Loss: {avg_loss:.4f}")
+    return avg_loss
 
 
 def main(args):
     # 1. Setup Device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     print(f'Selected Device: {device}')
     
     # 2. Folders creation
     os.makedirs(args.save_dir, exist_ok=True)
 
     # TensorBoard viewer setup
-    writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs'))
+    writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs_anomaly_detection'))
 
     wandb_run_id = None
     if args.resume_from and os.path.isfile(args.resume_from):
@@ -96,8 +89,8 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-main",             # Project name
-        name = f"train_{args.mode}_lr{args.lr}",  # Name for the run
+        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
+        name = f"train_ae_lr{args.lr}",                    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -106,6 +99,7 @@ def main(args):
     # 3. Load dataloaders 
     train_dataloader, valid_dataloader, _ = get_dataloaders(
         data_filepath = args.data_path, 
+        bg_classes = args.bg_classes,
         img_size = args.img_size, 
         batch_size = args.batch_size, 
         num_workers = min(4, os.cpu_count() or 1),
@@ -113,17 +107,16 @@ def main(args):
     )
     
     # 4. Initialize model and loss function
-    if args.mode == 'resnet':
-        model = ResNet50().to(device)
-    elif args.mode == 'inception':
-        model = InceptionV3().to(device)
-    else:
-        raise ValueError("Non-supported mode. Please choose 'resnet' or 'inception'.")
-    loss_fn = torch.nn.CrossEntropyLoss()
+    encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
+    decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
+    loss_fn = torch.nn.MSELoss()
 
     # 5. Define an optimizer 
     lr = args.lr 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.Adam([
+        {'params': encoder.parameters(), 'lr': lr},
+        {'params': decoder.parameters(), 'lr': lr}
+    ], weight_decay=args.weight_decay)
 
     start_epoch = 0
     best_val_loss = float('inf')
@@ -136,7 +129,8 @@ def main(args):
             print(f"Loading checkpoint from '{args.resume_from}' ...")
             checkpoint = torch.load(args.resume_from, map_location=device, weights_only=False)
             
-            model.load_state_dict(checkpoint['model_state_dict'])
+            encoder.load_state_dict(checkpoint['encoder_state_dict'])
+            decoder.load_state_dict(checkpoint['decoder_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
             if 'best_val_loss' in checkpoint:
@@ -149,29 +143,24 @@ def main(args):
     
     # 6. Training cycle
     for epoch in range(start_epoch, args.epochs):
-        train_loss, train_acc = train_epoch(model, train_dataloader, loss_fn, optimizer, device)
-        val_loss, val_acc = val_epoch(model, valid_dataloader, loss_fn, device)
+        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device)
+        val_loss = val_epoch(encoder, decoder, valid_dataloader, loss_fn, device)
 
-        print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f} - Train Accuracy: {train_acc:.4f}')
-        print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.4f} - Validation Accuracy: {val_acc:.4f}')
+        print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f}')
+        print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.4f}')
 
         # Add values for TensorBoard viewer
         writer.add_scalar('Loss/Train', train_loss, epoch)
         writer.add_scalar('Loss/Validation', val_loss, epoch)
-        writer.add_scalar('Accuracy/Train', train_acc, epoch)
-        writer.add_scalar('Accuracy/Validation', val_acc, epoch)
         writer.flush()
 
         # Add values for WandB logger
         wandb.log({
             "Epoch": epoch,
             "Loss/Train": train_loss,
-            "Loss/Validation": val_loss,
-            "Accuracy/Train": train_acc,
-            "Accuracy/Validation": val_acc
+            "Loss/Validation": val_loss
         })
 
-        
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             no_improvement_epochs = 0
@@ -182,15 +171,16 @@ def main(args):
 
         checkpoint_dict = {
             'epoch': epoch,
-            'model_state_dict': model.state_dict(),
+            'encoder_state_dict': encoder.state_dict(),
+            'decoder_state_dict': decoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'best_val_loss': best_val_loss,
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -198,15 +188,16 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"{args.mode}_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
 
 if __name__ == "__main__":
     # Command line args configuration
     parser = argparse.ArgumentParser(description="Train the ensemble model for jet image classification")
-    parser.add_argument('--mode', type=str, default='resnet', choices=['resnet', 'inception'], help="Choose the model to train: 'resnet' or 'inception'")
+    parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1], help='Classes to consider as background (e.g. 0 1)')
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
+    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization) factor')
     parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
