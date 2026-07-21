@@ -90,7 +90,7 @@ def main(args):
     # Wandb setup
     run = wandb.init(
         project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
-        name = f"train_{args.mode}_lr{args.lr}",                    # Name for the run
+        name = f"train_ae_lr{args.lr}",                    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
