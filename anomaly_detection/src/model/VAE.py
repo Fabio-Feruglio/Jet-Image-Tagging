@@ -147,3 +147,8 @@ class VAE_Ensemble_Light(nn.Module):
         z = self.reparameterize(mu, log_var)
         x_reconstructed = self.decoder(z)
         return x_reconstructed, mu, log_var
+    
+def reparameterize(mu, log_var):
+    std = torch.exp(0.5 * log_var)
+    eps = torch.randn_like(std)
+    return mu + eps * std
