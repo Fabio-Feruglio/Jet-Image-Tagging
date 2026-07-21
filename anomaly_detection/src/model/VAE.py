@@ -137,13 +137,18 @@ class VAE_Ensemble_Light(nn.Module):
         self.encoder = Vencoder_Ensemble_Light(encoded_space_dim=encoded_space_dim)
         self.decoder = VDecoder_Ensemble(encoded_space_dim=encoded_space_dim, im_size=im_size, base_channels=base_channels)
 
-    def reparameterize(self, mu, var):
-        std = torch.exp(0.5 * var)
+    def reparameterize(self, mu, log_var):
+        std = torch.exp(0.5 * log_var)
         eps = torch.randn_like(std)
         return mu + eps * std
 
     def forward(self, x):
-        mu, var = self.encoder(x)
-        z = self.reparameterize(mu, var)
+        mu, log_var = self.encoder(x)
+        z = self.reparameterize(mu, log_var)
         x_reconstructed = self.decoder(z)
-        return x_reconstructed, mu, var
+        return x_reconstructed, mu, log_var
+    
+def reparameterize(mu, log_var):
+    std = torch.exp(0.5 * log_var)
+    eps = torch.randn_like(std)
+    return mu + eps * std
