@@ -8,20 +8,7 @@ import wandb
 
 from dataset.dataloader import get_dataloaders
 from model.other_models_attempt.autoencoder import Encoder, Decoder
-from model.VAE import VAE_Ensemble_Light
-from model.VAE import Vencoder_Ensemble_Light as Encoder
-from model.VAE import VDecoder_Ensemble as Decoder
-from model.VAE import reparameterize
 
-###CUSTOM LOSS FUNC FOR VAE
-def VAE_loss_fn(reconstructed_x, x, mu, log_var, sigma=1.0):
-    # Reconstruction loss (MSE)
-    recon_loss = (torch.nn.functional.mse_loss(reconstructed_x, x, reduction='sum'))/(sigma**2)
-
-    # KL divergence
-    kl_div = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
-
-    return recon_loss + kl_div
 
 ### TRAINING ###
 def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
@@ -35,12 +22,11 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         label_batch = label_batch.to(device)
 
         # Forward pass
-        mu, log_var = encoder(x_batch)
-        z = reparameterize(mu, log_var)
-        reconstructed_x = decoder(z)
+        encoded = encoder(x_batch)
+        reconstructed_x = decoder(encoded)
 
         # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch, mu, log_var) 
+        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
 
         # Backward pass
         optimizer.zero_grad() 
@@ -53,6 +39,7 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
     avg_loss = np.mean(losses)
 
     return avg_loss
+
 
 ### VALIDATION ###
 def val_epoch(encoder, decoder, dataloader, loss_fn, device):
@@ -67,10 +54,9 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
             x_batch = x_batch.to(device)
             label_batch = label_batch.to(device)
 
-            mu, log_var = encoded = encoder(x_batch)
-            z = reparameterize(mu, log_var)
-            reconstructed_x = decoder(z)
-            loss = loss_fn(reconstructed_x, x_batch, mu, log_var) 
+            encoded = encoder(x_batch)
+            reconstructed_x = decoder(encoded)
+            loss = loss_fn(reconstructed_x, x_batch)
 
             losses.append(loss.item())
             
@@ -105,8 +91,6 @@ def main(args):
     run = wandb.init(
         project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
         name = f"train_{args.mode}_lr{args.lr}",                    # Name for the run
-        project = "jet-tagging-anomaly-detection-main",             # Project name
-        name = f"train_VAE_lr{args.lr}",                    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -126,9 +110,6 @@ def main(args):
     encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     loss_fn = torch.nn.MSELoss()
-    encoder = Encoder(encoded_space_dim=args.encoded_space_dim).to(device)
-    decoder = Decoder(encoded_space_dim=args.encoded_space_dim).to(device)
-    loss_fn = VAE_loss_fn
 
     # 5. Define an optimizer 
     lr = args.lr 
@@ -200,9 +181,6 @@ def main(args):
         torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
         if is_best:
             torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'VAE_latest.pth'))
-        if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'VAE_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -211,7 +189,6 @@ def main(args):
     writer.close()
     wandb.finish()
     print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"VAE_best.pth")}')
 
 if __name__ == "__main__":
     # Command line args configuration
@@ -228,7 +205,6 @@ if __name__ == "__main__":
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
     parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
     parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
-    parser.add_argument('--encoded_space_dim', type=int, default=128, help='Dimension of the encoded space')
 
     args = parser.parse_args()
     main(args)
