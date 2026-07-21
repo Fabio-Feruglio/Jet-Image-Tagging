@@ -10,6 +10,7 @@ from dataset.dataloader import get_dataloaders
 from model.VAE import VAE_Ensemble_Light
 from model.VAE import Vencoder_Ensemble_Light as Encoder
 from model.VAE import VDecoder_Ensemble as Decoder
+from model.VAE import reparameterize
 
 ###CUSTOM LOSS FUNC FOR VAE
 def VAE_loss_fn(reconstructed_x, x, mu, log_var, sigma=1.0):
@@ -34,7 +35,7 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
 
         # Forward pass
         mu, log_var = encoder(x_batch)
-        z = VAE_Ensemble_Light.reparameterize(mu, log_var)
+        z = reparameterize(mu, log_var)
         reconstructed_x = decoder(z)
 
         # Loss computation
@@ -66,7 +67,7 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
             label_batch = label_batch.to(device)
 
             mu, log_var = encoded = encoder(x_batch)
-            z = VAE_Ensemble_Light.reparameterize(mu, log_var)
+            z = reparameterize(mu, log_var)
             reconstructed_x = decoder(z)
             loss = loss_fn(reconstructed_x, x_batch)
 
