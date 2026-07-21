@@ -102,7 +102,7 @@ def main(args):
     # Wandb setup
     run = wandb.init(
         project = "jet-tagging-anomaly-detection-main",             # Project name
-        name = f"train_{args.mode}_lr{args.lr}",                    # Name for the run
+        name = f"train_VAE_lr{args.lr}",                    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -190,9 +190,9 @@ def main(args):
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'VAE_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'VAE_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -200,7 +200,7 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"{args.mode}_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"VAE_best.pth")}')
 
 if __name__ == "__main__":
     # Command line args configuration
