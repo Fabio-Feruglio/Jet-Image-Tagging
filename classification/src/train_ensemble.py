@@ -40,7 +40,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device, scaler=None):
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            scaler.zero_grad()
+            
         else:
             loss.backward()
             optimizer.step()
