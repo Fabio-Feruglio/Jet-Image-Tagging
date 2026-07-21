@@ -11,6 +11,15 @@ from model.VAE import VAE_Ensemble_Light
 from model.VAE import Vencoder_Ensemble_Light as Encoder
 from model.VAE import VDecoder_Ensemble as Decoder
 
+###CUSTOM LOSS FUNC FOR VAE
+def VAE_loss_fn(reconstructed_x, x, mu, log_var, sigma=1.0):
+    # Reconstruction loss (MSE)
+    recon_loss = (torch.nn.functional.mse_loss(reconstructed_x, x, reduction='sum'))/(sigma**2)
+
+    # KL divergence
+    kl_div = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
+
+    return recon_loss + kl_div
 
 ### TRAINING ###
 def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
@@ -42,7 +51,6 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
     avg_loss = np.mean(losses)
 
     return avg_loss
-
 
 ### VALIDATION ###
 def val_epoch(encoder, decoder, dataloader, loss_fn, device):
@@ -113,7 +121,7 @@ def main(args):
     # 4. Initialize model and loss function
     encoder = Encoder(encoded_space_dim=args.encoded_space_dim).to(device)
     decoder = Decoder(encoded_space_dim=args.encoded_space_dim).to(device)
-    loss_fn = torch.nn.MSELoss()
+    loss_fn = VAE_loss_fn
 
     # 5. Define an optimizer 
     lr = args.lr 
