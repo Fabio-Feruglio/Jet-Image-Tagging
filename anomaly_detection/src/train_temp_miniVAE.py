@@ -33,6 +33,10 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
     train_iterator = tqdm(dataloader)
     for x_batch, label_batch in train_iterator:
         x_batch = x_batch.to(device)
+
+        if x_batch.max() > 1.0:
+            x_batch = x_batch / 255.0
+
         label_batch = label_batch.to(device)
 
         # Forward pass
@@ -66,6 +70,10 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
 
         for x_batch, label_batch in val_iterator:
             x_batch = x_batch.to(device)
+
+            if x_batch.max() > 1.0:
+                x_batch = x_batch / 255.0
+
             label_batch = label_batch.to(device)
 
             encoded, mu, log_var = encoder(x_batch)
