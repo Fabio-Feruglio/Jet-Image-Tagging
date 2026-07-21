@@ -40,7 +40,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer, device, scaler=None):
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            scaler.zero_grad()
+            
         else:
             loss.backward()
             optimizer.step()
@@ -175,7 +175,7 @@ def main(args):
             set_backbone_trainable(model, trainable=True)
             warmup_stage = False
 
-        print(f'\nEPOCH {epoch+1}/{args.epochs} [{args.mode.upper()}]')
+        print(f'\nEPOCH {epoch+1}/{args.epochs}')
         train_loss, train_acc = train_epoch(model, train_dataloader, loss_fn, optimizer, device, scaler=scaler)
         val_loss, val_acc = val_epoch(model, valid_dataloader, loss_fn, device)
 
