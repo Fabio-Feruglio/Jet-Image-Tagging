@@ -7,7 +7,9 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 
 from dataset.dataloader import get_dataloaders
-from model.Autoencoder import Encoder, Decoder
+from model.VAE import VAE_Ensemble_Light
+from model.VAE import Vencoder_Ensemble_Light as Encoder
+from model.VAE import VDecoder_Ensemble as Decoder
 
 
 ### TRAINING ###
@@ -22,8 +24,9 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         label_batch = label_batch.to(device)
 
         # Forward pass
-        encoded = encoder(x_batch)
-        reconstructed_x = decoder(encoded)
+        mu, log_var = encoded = encoder(x_batch)
+        z = VAE_Ensemble_Light.reparameterize(mu, log_var)
+        reconstructed_x = decoder(z)
 
         # Loss computation
         loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
@@ -54,8 +57,9 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
             x_batch = x_batch.to(device)
             label_batch = label_batch.to(device)
 
-            encoded = encoder(x_batch)
-            reconstructed_x = decoder(encoded)
+            mu, log_var = encoded = encoder(x_batch)
+            z = VAE_Ensemble_Light.reparameterize(mu, log_var)
+            reconstructed_x = decoder(z)
             loss = loss_fn(reconstructed_x, x_batch)
 
             losses.append(loss.item())
