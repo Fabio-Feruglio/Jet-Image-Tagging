@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 
 from dataset.dataloader import get_dataloaders
-from model.other_models_attempt.autoencoder import Encoder, Decoder
+#from model.other_models_attempt.autoencoder import Encoder, Decoder
 from model.VAE import VAE_Ensemble_Light
 from model.VAE import Vencoder_Ensemble_Light as Encoder
 from model.VAE import VDecoder_Ensemble as Decoder
@@ -123,11 +123,8 @@ def main(args):
     )
     
     # 4. Initialize model and loss function
-    encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
-    decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
-    loss_fn = torch.nn.MSELoss()
-    encoder = Encoder(encoded_space_dim=args.encoded_space_dim).to(device)
-    decoder = Decoder(encoded_space_dim=args.encoded_space_dim).to(device)
+    encoder = Encoder(encoded_space_dim=args.latent_space_dim).to(device)
+    decoder = Decoder(encoded_space_dim=args.latent_space_dim).to(device)
     loss_fn = VAE_loss_fn
 
     # 5. Define an optimizer 
@@ -197,9 +194,9 @@ def main(args):
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'VAE_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'VAE_best.pth'))
         torch.save(checkpoint_dict, os.path.join(args.save_dir, f'VAE_latest.pth'))
         if is_best:
             torch.save(checkpoint_dict, os.path.join(args.save_dir, f'VAE_best.pth'))
@@ -210,7 +207,7 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "VAE_best.pth")}')
     print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"VAE_best.pth")}')
 
 if __name__ == "__main__":
@@ -228,7 +225,6 @@ if __name__ == "__main__":
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
     parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
     parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
-    parser.add_argument('--encoded_space_dim', type=int, default=128, help='Dimension of the encoded space')
 
     args = parser.parse_args()
     main(args)
