@@ -69,7 +69,7 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
             mu, log_var = encoded = encoder(x_batch)
             z = reparameterize(mu, log_var)
             reconstructed_x = decoder(z)
-            loss = loss_fn(reconstructed_x, x_batch)
+            loss = loss_fn(reconstructed_x, x_batch, mu, log_var) 
 
             losses.append(loss.item())
             
