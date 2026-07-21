@@ -39,7 +39,7 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         reconstructed_x = decoder(z)
 
         # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
+        loss = loss_fn(reconstructed_x, x_batch, mu, log_var) 
 
         # Backward pass
         optimizer.zero_grad() 
