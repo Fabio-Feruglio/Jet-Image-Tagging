@@ -9,7 +9,7 @@ import seaborn as sns
 from sklearn.metrics import roc_curve, auc
 
 from dataset.dataloader import get_dataloaders 
-from model.Autoencoder import Encoder, Decoder
+from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split):
     encoder.eval()
@@ -115,8 +115,8 @@ def main(args):
     )
     
     # Initialize the Autoencoder model
-    encoder = Encoder(encoded_space_dim=args.encoded_space_dim).to(device)
-    decoder = Decoder(encoded_space_dim=args.encoded_space_dim).to(device)
+    encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
+    decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     
     print(f"Loading model weights from: {args.model_path}")
     checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
@@ -144,6 +144,6 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--img_size', type=int, default=128, help='Image size')
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1], help='Classes to consider as background (e.g. 0 1)')
-
+    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
     args = parser.parse_args()
     main(args)

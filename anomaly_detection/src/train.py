@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 
 from dataset.dataloader import get_dataloaders
-from model.Autoencoder import Encoder, Decoder
+from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 
 ### TRAINING ###
@@ -89,7 +89,7 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-anomaly-detection-main",             # Project name
+        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
         name = f"train_{args.mode}_lr{args.lr}",                    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
@@ -107,8 +107,8 @@ def main(args):
     )
     
     # 4. Initialize model and loss function
-    encoder = Encoder(encoded_space_dim=args.encoded_space_dim).to(device)
-    decoder = Decoder(encoded_space_dim=args.encoded_space_dim).to(device)
+    encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
+    decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     loss_fn = torch.nn.MSELoss()
 
     # 5. Define an optimizer 
@@ -178,9 +178,9 @@ def main(args):
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -188,7 +188,7 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, f"{args.mode}_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
 
 if __name__ == "__main__":
     # Command line args configuration
@@ -197,6 +197,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
+    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization) factor')
     parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
