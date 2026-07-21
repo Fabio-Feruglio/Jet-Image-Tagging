@@ -20,13 +20,13 @@ def set_backbone_trainable(model, trainable: bool):
     for param in model.encoder.Vencoder.inception.parameters():
         param.requires_grad = trainable
 
-def vae_loss_fn(recon_x, x, mu, log_var):
+def vae_loss_fn(recon_x, x, mu, log_var, sigma=1.0):
     """
     Loss per il VAE composta da errore di ricostruzione + divergenza KL
     """
     # Mean Squared Error Loss per la ricostruzione
     # 'sum' somma gli errori su tutti i pixel per ogni immagine del batch
-    recon_loss = nn.MSELoss(reduction='sum')(recon_x, x)
+    recon_loss = (nn.MSELoss(reduction='sum')(recon_x, x))/(2*sigma**2)
     
     # Kullback-Leibler Divergence
     kld_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
@@ -42,7 +42,8 @@ def objective(trial, args):
     lr_backbone = trial.suggest_categorical("lr_backbone", [1e-6, 1e-5, 1e-4])                  # LR per i backbone convoluzionali
     weight_decay = trial.suggest_categorical("weight_decay", [1e-6, 1e-5, 1e-4, 1e-3, 1e-2])    # Weight decay
     batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])                         # Batch size
-    frozen_epochs = trial.suggest_int("frozen_epochs", 0, 5)                                    # Epochs per il freeze
+    frozen_epochs = trial.suggest_int("frozen_epochs", 0, 5) 
+    sigma = trial.suggest_float("sigma", 0.1, 10.0)                                    # Epochs per il freeze
     
     print(f"\nTRIAL {trial.number}\n{'='*40}")
     print("Hyperparameters:")
