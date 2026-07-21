@@ -1,7 +1,7 @@
 import torch
 from torch import nn
-from ....classification.src.model.ensemble import EnsembleModel
-from ....classification.src.model.resnet import ResNet50
+from .ensemble import EnsembleModel
+from .resnet import ResNet50
 
 class Vencoder_Light(nn.Module):
     def __init__(self, encoded_space_dim):
@@ -9,10 +9,10 @@ class Vencoder_Light(nn.Module):
 
         resnet_output = 2048
         self.Vencoder = ResNet50(num_classes=resnet_output)
-        self.Vencoder.fc = nn.Sequential(
-            nn.Linear(resnet_output, 512),
+        self.Vencoder.out = nn.Sequential(
+            nn.Linear(resnet_output, resnet_output),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.2),
             nn.Linear(512, 512),
             nn.ReLU()
         )
@@ -31,21 +31,24 @@ class VEnconder_Ensemble(nn.Module):
 
         self.Vencoder = EnsembleModel()
         self.Vencoder.fc = nn.Sequential(
-            nn.Linear(2048 + 1536, 512),
+            nn.Linear(2048 + 2048, 2048),
             nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(512, 512),
+            nn.Dropout(0.2),
+            nn.Linear(2048, 1024),
             nn.ReLU()
         )
-        self.fc_mu = nn.Linear(in_features=512, out_features=encoded_space_dim)
-        self.fc_log_var = nn.Linear(in_features=512, out_features=encoded_space_dim)
+        self.fc_mu = nn.Linear(in_features=1024, out_features=encoded_space_dim)
+        self.fc_log_var = nn.Linear(in_features=1024, out_features=encoded_space_dim)
 
     def forward(self, x):
         x = self.Vencoder(x)
         mu = self.fc_mu(x)
         log_var = self.fc_log_var(x)
         return mu, log_var
-     
+
+
+
+
 class VDecoder_Ensemble(nn.Module):
     def __init__(self, encoded_space_dim, im_size=299, base_channels=8):
         super().__init__()
@@ -58,8 +61,6 @@ class VDecoder_Ensemble(nn.Module):
 
         self.Vdecoder_lin = nn.Sequential(
             nn.Linear(in_features=encoded_space_dim, out_features=512),
-            nn.ReLU(True),
-            nn.Linear(in_features=512, out_features=512),
             nn.ReLU(True),
             nn.Linear(in_features=512, out_features=self.start_channels * 5 * 5),
             nn.ReLU(True)
@@ -92,11 +93,31 @@ class VDecoder_Ensemble(nn.Module):
             x = self.Vdecoder_deconv(x)
             return x
         
+class Vencoder_Ensemble_Light(nn.Module):
+    def __init__(self, encoded_space_dim):
+        super().__init__()
+
+        self.Vencoder = EnsembleModel()
+        self.Vencoder.fc = nn.Sequential(
+            nn.Linear(2048 + 2048, 2048),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(2048, 1024),
+            nn.ReLU()
+        )
+        self.fc_mu = nn.Linear(in_features=1024, out_features=encoded_space_dim)
+        self.fc_var = nn.Linear(in_features=1024, out_features=encoded_space_dim)
+
+    def forward(self, x):
+        x = self.Vencoder(x)
+        mu = self.fc_mu(x)
+        var = self.fc_var(x)
+        return mu, var
 
 class VAE_Ensemble(nn.Module):
     def __init__(self, encoded_space_dim, im_size=299, base_channels=8):
         super().__init__()
-        self.encoder = VEnconder_Ensemble(encoded_space_dim=encoded_space_dim, base_channels=base_channels)
+        self.encoder = VEnconder_Ensemble(encoded_space_dim=encoded_space_dim)
         self.decoder = VDecoder_Ensemble(encoded_space_dim=encoded_space_dim, im_size=im_size, base_channels=base_channels)
 
     def reparameterize(self, mu, log_var):
@@ -109,3 +130,20 @@ class VAE_Ensemble(nn.Module):
         z = self.reparameterize(mu, log_var)
         x_reconstructed = self.decoder(z)
         return x_reconstructed, mu, log_var
+    
+class VAE_Ensemble_Light(nn.Module):
+    def __init__(self, encoded_space_dim, im_size=299, base_channels=8):
+        super().__init__()
+        self.encoder = Vencoder_Ensemble_Light(encoded_space_dim=encoded_space_dim)
+        self.decoder = VDecoder_Ensemble(encoded_space_dim=encoded_space_dim, im_size=im_size, base_channels=base_channels)
+
+    def reparameterize(self, mu, var):
+        std = torch.exp(0.5 * var)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def forward(self, x):
+        mu, var = self.encoder(x)
+        z = self.reparameterize(mu, var)
+        x_reconstructed = self.decoder(z)
+        return x_reconstructed, mu, var
