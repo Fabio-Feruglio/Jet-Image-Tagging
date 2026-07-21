@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 
 from dataset.dataloader import get_dataloaders
-from model.other_models_attempt.autoencoder import Encoder, Decoder
+from model.other_models_attempt.miniVAE import Encoder, Decoder
 
 ###CUSTOM LOSS FUNC FOR VAE
 def VAE_loss_fn(reconstructed_x, x, mu, log_var, sigma=1.0):
@@ -98,8 +98,8 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
-        name = f"train_ae_lr{args.lr}",                    # Name for the run
+        project = "jet-tagging-anomaly-detection-vae-attempt",             # Project name
+        name = f"train_vae_lr{args.lr}",                    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -187,9 +187,9 @@ def main(args):
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'miniVAE_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'miniVAE_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -197,7 +197,7 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "miniVAE_best.pth")}')
 
 if __name__ == "__main__":
     # Command line args configuration
