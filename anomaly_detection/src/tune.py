@@ -8,7 +8,7 @@ import torch.nn as nn
 import numpy as np
 
 # Assicurati che l'import del DataLoader e del VAE corrispondano ai file reali
-from dataset.dataloader import get_dataloaders
+from .dataset.dataloader import get_dataloaders
 from .model.VAE import VAE_Ensemble_Light 
 
 def set_backbone_trainable(model, trainable: bool):
