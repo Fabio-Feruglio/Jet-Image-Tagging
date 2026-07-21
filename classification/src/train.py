@@ -88,27 +88,29 @@ def main(args):
 
     wandb_run_id = None
     if args.resume_from and os.path.isfile(args.resume_from):
-        print(f"Sbircio nel checkpoint '{args.resume_from}' per recuperare l'ID di WandB...")
-        # Carichiamo temporaneamente sulla CPU solo per leggere i metadati
+        
         temp_checkpoint = torch.load(args.resume_from, map_location='cpu', weights_only=False)
         if 'wandb_run_id' in temp_checkpoint:
             wandb_run_id = temp_checkpoint['wandb_run_id']
-            print(f"ID recuperato con successo: {wandb_run_id}")
+            print(f"ID: {wandb_run_id}")
 
     # Wandb setup
-    wandb.init(
-        project="jet-tagging-main",             # Project name
-        name=f"train_{args.mode}_lr{args.lr}",  # Name for the run
-        config=vars(args),
-        id=wandb_run_id,     # <-- PASSIAMO L'ID (sarà None se partiamo da zero)
-        resume="allow"                                              # Save parameters
+    run = wandb.init(
+        project = "jet-tagging-main",             # Project name
+        name = f"train_{args.mode}_lr{args.lr}",  # Name for the run
+        config = vars(args),
+        id = wandb_run_id,     
+        resume = "allow"                                     
     )
     
     # 3. Load dataloaders 
-    train_dataloader, valid_dataloader, _ = get_dataloaders(data_filepath = args.data_path, 
-                                                            img_size = args.img_size, batch_size = args.batch_size, 
-                                                            num_workers = min(4, os.cpu_count() or 1),
-                                                            max_samples = args.max_samples)
+    train_dataloader, valid_dataloader, _ = get_dataloaders(
+        data_filepath = args.data_path, 
+        img_size = args.img_size, 
+        batch_size = args.batch_size, 
+        num_workers = min(4, os.cpu_count() or 1),
+        max_samples = args.max_samples
+    )
     
     # 4. Initialize model and loss function
     if args.mode == 'resnet':
@@ -119,7 +121,7 @@ def main(args):
         raise ValueError("Non-supported mode. Please choose 'resnet' or 'inception'.")
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    # 5. Define an optimizer (Usando il weight decay dagli argomenti)
+    # 5. Define an optimizer 
     lr = args.lr 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
 
@@ -184,7 +186,7 @@ def main(args):
             'optimizer_state_dict': optimizer.state_dict(),
             'best_val_loss': best_val_loss,
             'no_improvement_epochs': no_improvement_epochs,
-            'wandb_run_id': wandb.run.id
+            'wandb_run_id': run.id
         }
         torch.save(checkpoint_dict, os.path.join(args.save_dir, f'{args.mode}_latest.pth'))
         if is_best:
