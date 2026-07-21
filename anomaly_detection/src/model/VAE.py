@@ -147,3 +147,6 @@ class VAE_Ensemble_Light(nn.Module):
         z = self.reparameterize(mu, var)
         x_reconstructed = self.decoder(z)
         return x_reconstructed, mu, var
+
+def test_func():
+    print("test")
