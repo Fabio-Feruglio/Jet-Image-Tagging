@@ -20,8 +20,6 @@ def VAE_loss_fn(reconstructed_x, x, mu, log_var, sigma=1.0):
 
     # 3. Dividiamo la KL per il numero di pixel per bilanciarla con la media della MSE
     num_pixels = x.shape[1] * x.shape[2] * x.shape[3]
-    print(f"Number of pixels: {num_pixels}")
-    print(f"x shape: {x.shape}")
     kl_div_scaled = kl_div / num_pixels
 
     # Valore finale piccolo e stabile
