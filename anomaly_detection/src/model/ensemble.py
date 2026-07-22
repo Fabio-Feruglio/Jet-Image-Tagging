@@ -45,10 +45,10 @@ class EnsembleModel(nn.Module):
 
 class EnsembleModel_Light(nn.Module):
     #Reduced default hidden layer size to 256 to reduce the number of parameters
-    def __init__(self, num_classes = 5, resnet_path = None, inception_path = None, weights_device = 'cpu', hidden_layer_size = 256, dropout_mlp = 0.5):
+    def __init__(self, resnet_path = None, inception_path = None, weights_device = 'cpu', hidden_layer_size = 256, dropout_mlp = 0.5):
         super().__init__()
-        self.resnet = ResNet_Light(num_classes = num_classes)
-        self.inception = InceptionV3_Light(num_classes = num_classes)
+        self.resnet = ResNet_Light()
+        self.inception = InceptionV3_Light()
 
         if resnet_path and os.path.exists(resnet_path):
             print(f"Load ResNet weights from {resnet_path}")
@@ -65,10 +65,10 @@ class EnsembleModel_Light(nn.Module):
 
 
         self.fc = nn.Sequential(
-            nn.Linear(2048 + 2048, hidden_layer_size),
+            nn.Linear(2048 + 2048, 2048),
             nn.ReLU(),
             nn.Dropout(dropout_mlp),
-            nn.Linear(hidden_layer_size, num_classes),
+            nn.Linear(2048, hidden_layer_size),
         )
 
     def forward(self, x):

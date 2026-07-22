@@ -114,7 +114,7 @@ def main(args):
         max_samples = args.max_samples
     )
     
-    # Initialize the Varaitional Autoencoder model
+    # Initialize the Variational Autoencoder model
     encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     
@@ -136,7 +136,7 @@ def main(args):
                                save_dir=args.save_dir, model_name="variational_autoencoder")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluation of Varaitional Autoencoder for Anomaly Detection")
+    parser = argparse.ArgumentParser(description="Evaluation of Variational Autoencoder for Anomaly Detection")
     parser.add_argument('--model_path', type=str, required=True, help="Variational Autoencoder weights path")
     parser.add_argument('--data_path', type=str, default='./dataset.h5', help="Path to the dataset")
     parser.add_argument('--save_dir', type=str, default='./results_ad', help="Directory for plots and results")
