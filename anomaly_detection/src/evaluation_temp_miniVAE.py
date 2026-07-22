@@ -85,13 +85,13 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
             
             # 2. FORWARD PASS (Gestione multipla)
             encoded, mu, log_var = encoder(batch_x)
-
-            if saved_images < max_images_to_save: 
-                save_reconstruction_pairs(batch_x, reconstructed, save_dir, data_split, num_images=5)
-                saved_images += 1
             
             # 3. DETERMINISMO: Passiamo 'mu' al decoder
             reconstructed = decoder(encoded)
+
+            if saved_images < max_images_to_save: 
+                            save_reconstruction_pairs(batch_x, reconstructed, save_dir, data_split, num_images=5)
+                            saved_images += 1
 
             # 4. CALCOLO ANOMALY SCORE
             # A) Errore di ricostruzione (MSE) scalato per sigma^2
