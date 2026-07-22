@@ -129,12 +129,6 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
 
     all_indices = np.arange(labels.shape[0])
 
-    if max_samples is not None and max_samples < len(all_indices):
-        print(f"Subsampling dataset to {max_samples} samples (stratified)...")
-        all_indices, _, labels, _ = train_test_split(
-            all_indices, labels, train_size=max_samples, random_state=42, stratify=labels
-        )
-
     # Bg and anomaly masks
     bg_mask = np.isin(labels, bg_classes)
     anomaly_mask = ~bg_mask
@@ -142,27 +136,49 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
     bg_indices = all_indices[bg_mask]
     anomaly_indices = all_indices[anomaly_mask]
     bg_labels = labels[bg_mask]
+    anomaly_labels = labels[anomaly_mask]
 
     print(f"Total Background samples: {len(bg_indices)}")
     print(f"Total Anomaly samples: {len(anomaly_indices)}")
 
-    # Split background samples into Train+Val and Test (80% Train+Val, 20% Test)
+    # Limit the number of background samples if max_samples is specified
+    if max_samples is not None and max_samples < len(bg_indices):
+        print(f"Limiting Background dataset to {max_samples} samples (stratified)...")
+        bg_indices, _, bg_labels, _ = train_test_split(
+            bg_indices, bg_labels, 
+            train_size=max_samples, 
+            random_state=42, 
+            stratify=bg_labels
+        )
+
+    # Split background samples into Train+Val and Test (85% (70+15%) Train+Val, 15% Test)
     bg_train_val_idx, bg_test_idx, bg_train_val_labels, _ = train_test_split(
         bg_indices, bg_labels, 
-        test_size=0.2, 
+        test_size=0.15, 
         random_state=42, 
         stratify=bg_labels
     )
     
-    # Divide the Train+Val set into Train and Validation (80% Train, 20% Validation)
+    # Divide the Train+Val set into Train and Validation (70% Train, 15% Validation)
     train_idx, val_idx = train_test_split(
         bg_train_val_idx, 
-        test_size=0.2, 
+        test_size=0.15 / 0.85, 
         random_state=42, 
         stratify=bg_train_val_labels 
     )
 
-    test_idx = np.concatenate([bg_test_idx, anomaly_indices])
+    # Sample anomalies for the test set
+    num_test_anomalies = len(bg_test_idx)
+    num_test_anomalies = min(num_test_anomalies, len(anomaly_indices))
+    sampled_anomaly_idx, _, _, _ = train_test_split(
+        anomaly_indices, anomaly_labels,
+        train_size=num_test_anomalies,
+        random_state=42,
+        stratify=anomaly_labels
+    )
+
+    # Combine background test indices with sampled anomaly indices for the final test set
+    test_idx = np.concatenate([bg_test_idx, sampled_anomaly_idx])
     np.random.shuffle(test_idx)
 
     print(f"Train set size (only bg): {len(train_idx)}")
