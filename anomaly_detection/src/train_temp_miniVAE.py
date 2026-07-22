@@ -11,18 +11,19 @@ from model.other_models_attempt.miniVAE import Encoder, Decoder
 
 ###CUSTOM LOSS FUNC FOR VAE
 def VAE_loss_fn(reconstructed_x, x, mu, log_var, sigma=1.0):
-    # 1. Calcola l'MSE per ogni pixel senza ridurre subito
-    mse = torch.nn.functional.mse_loss(reconstructed_x, x, reduction='none')
-    
-    # 2. Somma sui canali e dimensioni spaziali (dim 1, 2, 3), 
-    # ma fai la MEDIA sul batch (dim 0)
-    recon_loss = mse.sum(dim=[1, 2, 3]).mean() / (sigma**2)
+    # 1. MSE puro (Media su tutto il batch e tutti i pixel)
+    # Valore atteso all'inizio: circa 0.05 - 0.2
+    recon_loss = torch.nn.functional.mse_loss(reconstructed_x, x, reduction='mean') / (sigma**2)
 
-    # 3. Fai la stessa cosa per la KL: somma sulle dimensioni latenti (dim 1), 
-    # media sul batch (dim 0)
+    # 2. KL Divergence (Media sul batch)
     kl_div = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=1).mean()
 
-    return recon_loss + kl_div
+    # 3. Dividiamo la KL per il numero di pixel per bilanciarla con la media della MSE
+    num_pixels = x.shape[1] * x.shape[2] * x.shape[3]
+    kl_div_scaled = kl_div / num_pixels
+
+    # Valore finale piccolo e stabile
+    return recon_loss + kl_div_scaled
 
 ### TRAINING ###
 def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
