@@ -33,7 +33,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
             encoded, mu, log_var = encoder(batch_x)
             
             # 3. DETERMINISMO: Passiamo 'mu' al decoder
-            reconstructed = decoder(mu)
+            reconstructed = decoder(encoded)
 
             # 4. CALCOLO ANOMALY SCORE
             # A) Errore di ricostruzione (MSE) scalato per sigma^2
