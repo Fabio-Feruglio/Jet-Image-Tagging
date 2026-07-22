@@ -11,7 +11,7 @@ from sklearn.metrics import roc_curve, auc
 from dataset.dataloader import get_dataloaders 
 from model.other_models_attempt.miniVAE import Encoder, Decoder
 
-def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split):
+def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split, sigma=1.0):
     encoder.eval()
     decoder.eval()
 
@@ -24,22 +24,34 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     with torch.no_grad():
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
-            # batch_y contains the true labels (0 for background, 1 for anomaly)
             
-            # Forward pass
-            encoded = encoder(batch_x)
-            reconstructed = decoder(encoded)
+            # 1. NORMALIZZAZIONE DEI DATI
+            if batch_x.max() > 1.0:
+                batch_x = batch_x / 255.0
+            
+            # 2. FORWARD PASS (Gestione multipla)
+            encoded, mu, log_var = encoder(batch_x)
+            
+            # 3. DETERMINISMO: Passiamo 'mu' al decoder
+            reconstructed = decoder(mu)
 
-            # Anomaly score
-            # shape [batch_size, channels, height, width]
+            # 4. CALCOLO ANOMALY SCORE
+            # A) Errore di ricostruzione (MSE) scalato per sigma^2
             loss_per_pixel = mse_loss_fn(reconstructed, batch_x)
-            
-            # mean over channels, height, and width to get a single score per image
-            # shape [batch_size]
-            loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1)
+            recon_loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1) / (sigma**2)
 
-            # Save the scores and true labels
-            anomaly_scores.extend(loss_per_image.cpu().numpy())
+            # B) Divergenza KL
+            kl_div_per_image = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=1)
+            
+            # C) Scaliamo la KL come fatto nel training
+            num_pixels = batch_x.shape[1] * batch_x.shape[2] * batch_x.shape[3]
+            kl_scaled_per_image = kl_div_per_image / num_pixels
+
+            # D) Somma bilanciata esattamente come nel training
+            final_anomaly_score = recon_loss_per_image + kl_scaled_per_image
+
+            # Salva i punteggi e le label vere
+            anomaly_scores.extend(final_anomaly_score.cpu().numpy())
             true_labels.extend(batch_y.numpy())
 
     anomaly_scores = np.array(anomaly_scores)
