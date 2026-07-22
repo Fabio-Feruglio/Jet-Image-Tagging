@@ -9,105 +9,112 @@ import seaborn as sns
 from sklearn.metrics import roc_curve, auc
 
 from dataset.dataloader import get_dataloaders 
-# Importiamo anche la TransformHead
 from model.other_models_attempt.miniVAE import Encoder, Decoder, TransformHead
 
 def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir, data_split, num_per_class=3):
-    """
-    Salva un'immagine PNG contenente num_per_class immagini di Background e 
-    num_per_class immagini Anomale, affiancate dalle loro ricostruzioni VAE.
-    
-    Format supportato: Singolo Canale (Grayscale) [Batch, 1, H, W] con dimensioni spaziali dinamiche.
-    """
     img_dir = os.path.join(save_dir, 'reconstructions')
     os.makedirs(img_dir, exist_ok=True)
     
-    # Trasformiamo i tensori in numpy array per il plotting
     orig_np = original.cpu().detach().numpy()
     recon_np = reconstructed.cpu().detach().numpy()
     labels_np = labels.cpu().detach().numpy()
     
-    # Identifichiamo gli indici per background (0) e anomalie (1)
     bg_indices = np.where(labels_np == 0)[0][:num_per_class]
     anom_indices = np.where(labels_np == 1)[0][:num_per_class]
-    
-    # Uniamo gli indici trovati (prima tutti i background, poi tutte le anomalie)
     selected_indices = np.concatenate([bg_indices, anom_indices])
     total_images = len(selected_indices)
     
-    if total_images == 0:
-        print(f"Attenzione: Nessun dato trovato per salvare le ricostruzioni su {data_split}.")
-        return
+    if total_images == 0: return
 
-    # Creiamo la figura: 2 colonne (Input vs Output) x N righe totali
     fig, axes = plt.subplots(nrows=total_images, ncols=2, figsize=(8, 3 * total_images))
-    
-    # Gestione di sicurezza per indicizzazione se total_images == 1
-    if total_images == 1:
-        axes = [axes]
+    if total_images == 1: axes = [axes]
         
     for i, idx in enumerate(selected_indices):
-        label_type = "Background (Normal)" if labels_np[idx] == 0 else "Anomaly (New Physics)"
-        
-        # Rimuoviamo la dimensione del canale (da [1, H, W] a [H, W]) usando squeeze()
+        label_type = "Background" if labels_np[idx] == 0 else "Anomaly"
         img_in = orig_np[idx].squeeze()
         img_out = recon_np[idx].squeeze()
 
-        # Colonna 1: Input Originale con tipo di dato indicato nel titolo
-        ax_orig = axes[i][0]
-        ax_orig.imshow(img_in, cmap='gray', vmin=0.0, vmax=1.0)
-        ax_orig.set_title(f"Input - {label_type}")
-        ax_orig.axis('off')
+        axes[i][0].imshow(img_in, cmap='gray', vmin=0.0, vmax=1.0)
+        axes[i][0].set_title(f"Input - {label_type}")
+        axes[i][0].axis('off')
         
-        # Colonna 2: Output Ricostruito dal VAE
-        ax_recon = axes[i][1]
-        ax_recon.imshow(img_out, cmap='gray', vmin=0.0, vmax=1.0)
-        ax_recon.set_title(f"VAE Recon - {label_type}")
-        ax_recon.axis('off')
+        axes[i][1].imshow(img_out, cmap='gray', vmin=0.0, vmax=1.0)
+        axes[i][1].set_title(f"Recon - {label_type}")
+        axes[i][1].axis('off')
         
     plt.tight_layout()
-    
-    save_path = os.path.join(img_dir, f"reconstructions_comparison_{data_split}.png")
-    plt.savefig(save_path, bbox_inches='tight')
+    plt.savefig(os.path.join(img_dir, f"reconstructions_comparison_{data_split}.png"), bbox_inches='tight')
     plt.close(fig)
-    print(f"Confronto ricostruzioni salvato in: {save_path}")
 
-# Aggiunto transform_head tra i parametri, seppur opzionale per il calcolo base dell'anomaly score
-def evaluate_anomaly_detection(dataloader, encoder, decoder, transform_head, device, save_dir, model_name, data_split, sigma=1.0):
+def evaluate_anomaly_detection(dataloader, encoder, decoder, transform_head, device, save_dir, model_name, data_split, args):
     encoder.eval()
     decoder.eval()
     transform_head.eval()
 
-    mse_loss_fn = nn.MSELoss(reduction='none') 
-    
     anomaly_scores = []
     true_labels = []
-
     saved_images = False
+
+    # Parametro per i campionamenti multipli stocastici
+    M_SAMPLES = 10 
 
     print(f"\n--- Eval on set: {data_split.upper()} ---")
     with torch.no_grad():
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
             
-            # FORWARD PASS (Gestione multipla)
-            encoded, mu, log_var = encoder(batch_x)
+            if batch_x.max() > 1.0:
+                batch_x = batch_x / 255.0
             
-            # DETERMINISMO: Passiamo 'mu' al decoder per l'inferenza
-            reconstructed = decoder(mu)
+            # Forward Encoder
+            _, mu, log_var = encoder(batch_x)
             
-            # Passaggio opzionale per le feature proiettate (puoi usarle in futuro per metriche di distanza spaziale)
-            proj_features = transform_head(mu)
+            # 1. Calcolo Incertezza e Ricostruzione su M campionamenti stocastici
+            recon_errors_per_sample = []
+            
+            # Creiamo la matrice dei pesi per la Weighted Loss
+            weight = torch.where(batch_x > 0.0, 10.0, 1.0)
+            
+            # Salveremo la prima ricostruzione deterministica solo per il plot
+            deterministic_recon = decoder(mu)
+            
+            for _ in range(M_SAMPLES):
+                # Campionamento dal reparameterization trick
+                std = torch.exp(0.5 * log_var)
+                eps = torch.randn_like(std)
+                z = mu + eps * std
+                
+                # Ricostruzione Stocastica
+                rec_x = decoder(z)
+                
+                # Calcolo errore pesato per singola immagine [batch_size]
+                err = (weight * (rec_x - batch_x)**2).view(batch_x.size(0), -1).mean(dim=1)
+                recon_errors_per_sample.append(err)
+            
+            # Tensore degli errori: shape [M_SAMPLES, batch_size]
+            recon_errors_tensor = torch.stack(recon_errors_per_sample, dim=0)
+            
+            # L'incertezza genera due segnali: l'errore medio e la varianza delle ricostruzioni
+            mean_recon_error = recon_errors_tensor.mean(dim=0)
+            var_recon_error = recon_errors_tensor.var(dim=0)
 
+            # 2. Divergenza KL Scalata
+            kl_div = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=1)
+            num_pixels = batch_x.shape[1] * batch_x.shape[2] * batch_x.shape[3]
+            kl_scaled = kl_div / num_pixels
+
+            # 3. ANOMALY SCORE FINALE COMPLETO
+            # Combina la ricostruzione media pesata, la varianza dell'incertezza e la KL
+            final_anomaly_score = mean_recon_error + var_recon_error + (args.beta * kl_scaled)
+
+            # --- Salvataggio Immagini Plot ---
             if not saved_images:
-                # Verifichiamo che il batch contenga sia 0 che 1
                 has_bg = (batch_y == 0).any()
                 has_anom = (batch_y == 1).any()
-                
                 if has_bg and has_anom:
                     save_reconstruction_pairs_by_class(
                         original=batch_x, 
-                        reconstructed=reconstructed, 
+                        reconstructed=deterministic_recon, 
                         labels=batch_y, 
                         save_dir=save_dir, 
                         data_split=data_split, 
@@ -115,80 +122,44 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, transform_head, dev
                     )
                     saved_images = True
 
-            # CALCOLO ANOMALY SCORE
-            # A) Errore di ricostruzione (MSE) scalato per sigma^2
-            loss_per_pixel = mse_loss_fn(reconstructed, batch_x)
-            recon_loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1) / (sigma**2)
-
-            # B) Divergenza KL
-            kl_div_per_image = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=1)
-            
-            # C) Scaliamo la KL come fatto nel training
-            num_pixels = batch_x.shape[1] * batch_x.shape[2] * batch_x.shape[3]
-            kl_scaled_per_image = kl_div_per_image / num_pixels
-
-            # D) Somma bilanciata
-            final_anomaly_score = recon_loss_per_image + kl_scaled_per_image
-
-            # Salva i punteggi e le label vere
             anomaly_scores.extend(final_anomaly_score.cpu().numpy())
             true_labels.extend(batch_y.numpy())
 
     anomaly_scores = np.array(anomaly_scores)
     true_labels = np.array(true_labels)
     
-    mean_loss = np.mean(anomaly_scores)
-    print(f"\nResults {data_split.upper()}:")
-    print(f"Mean Reconstruction Loss: {mean_loss:.6f}")
-
-    # PLOT 1: Anomaly Score Distribution
+    # --- PLOTTING ---
     plt.figure(figsize=(10, 6))
-    
-    # Background (Label 0)
-    sns.histplot(anomaly_scores[true_labels == 0], color='blue', label='Background (QCD/Light)', 
-                 kde=True, stat='density', alpha=0.5, bins=50)
-    
-    # Anomalies (Label 1)
+    sns.histplot(anomaly_scores[true_labels == 0], color='blue', label='Background', kde=False, stat='density', alpha=0.5, bins=50)
     if np.sum(true_labels == 1) > 0:
-        sns.histplot(anomaly_scores[true_labels == 1], color='red', label='Anomalies (New Physics)', 
-                     kde=True, stat='density', alpha=0.5, bins=50)
-        
-    plt.xlabel('Reconstruction Error (Anomaly Score)')
+        sns.histplot(anomaly_scores[true_labels == 1], color='red', label='Anomalies', kde=False, stat='density', alpha=0.5, bins=50)
+    plt.xlabel('Advanced Anomaly Score (Weighted MSE + Var + Beta*KL)')
     plt.ylabel('Density')
     plt.title(f'Anomaly Score Distribution - {data_split.capitalize()}')
     plt.legend()
-    
     dist_path = os.path.join(save_dir, f'loss_dist_{data_split}_{model_name}.png')
     plt.savefig(dist_path, bbox_inches='tight')
     plt.close()
-    print(f"Distribution plot saved in: {dist_path}")
 
-    # PLOT 2: ROC Curve 
     roc_auc = None
     if np.sum(true_labels == 1) > 0:
-        fpr, tpr, thresholds = roc_curve(true_labels, anomaly_scores)
+        fpr, tpr, _ = roc_curve(true_labels, anomaly_scores)
         roc_auc = auc(fpr, tpr)
-        
         plt.figure(figsize=(8, 8))
-        plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.3f})')
+        plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'AUC = {roc_auc:.3f}')
         plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
-        
         plt.xlabel('False Positive Rate (Background Mistag)')
         plt.ylabel('True Positive Rate (Anomaly Efficiency)')
-        plt.title(f'Anomaly Detection ROC Curve - {data_split.capitalize()}')
+        plt.title(f'ROC Curve - {data_split.capitalize()}')
         plt.legend(loc="lower right")
-        
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
-        print(f"ROC plot saved in: {roc_path}")
-    else:
-        print(f"Skipping ROC curve for {data_split.upper()} (No anomalies present in validation set).")
-
-    return mean_loss, roc_auc
-
+        print(f"[{data_split.upper()}] Final AUC: {roc_auc:.4f}")
+    
+    return roc_auc
 
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -196,7 +167,6 @@ def main(args):
     
     os.makedirs(args.save_dir, exist_ok=True)
     
-    # Load dataloaders
     _, valid_loader, test_loader = get_dataloaders(
         data_filepath = args.data_path, 
         bg_classes = args.bg_classes,
@@ -206,48 +176,39 @@ def main(args):
         max_samples = args.max_samples
     )
     
-    # Initialize the Variational Autoencoder model e la nuova TransformHead
     encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     transform_head = TransformHead(latent_space_dim=args.latent_space_dim, proj_dim=args.proj_dim).to(device)
     
-    print(f"Loading model weights from: {args.model_path}")
+    print(f"Loading weights from: {args.model_path}")
     checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
     
-    # Caricamento robusto dei dizionari salvati durante l'addestramento SupCon
     if 'encoder_state_dict' in checkpoint:
         encoder.load_state_dict(checkpoint['encoder_state_dict'])
         decoder.load_state_dict(checkpoint['decoder_state_dict'])
         if 'transform_head_state_dict' in checkpoint:
             transform_head.load_state_dict(checkpoint['transform_head_state_dict'])
-        else:
-            print("Attenzione: 'transform_head_state_dict' non trovato nel checkpoint.")
     else:
         encoder.load_state_dict(checkpoint)
         decoder.load_state_dict(checkpoint)
 
-    # Evaluate on validation
-    evaluate_anomaly_detection(valid_loader, encoder, decoder, transform_head, device, data_split="validation", 
-                               save_dir=args.save_dir, model_name="variational_autoencoder", sigma=args.sigma)
-    
-    # Evaluate on test
-    evaluate_anomaly_detection(test_loader, encoder, decoder, transform_head, device, data_split="test", 
-                               save_dir=args.save_dir, model_name="variational_autoencoder", sigma=args.sigma)
+    evaluate_anomaly_detection(valid_loader, encoder, decoder, transform_head, device, args.save_dir, "advanced_vae", "validation", args)
+    evaluate_anomaly_detection(test_loader, encoder, decoder, transform_head, device, args.save_dir, "advanced_vae", "test", args)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluation of Variational Autoencoder for Anomaly Detection")
-    parser.add_argument('--model_path', type=str, required=True, help="Variational Autoencoder weights path")
-    parser.add_argument('--data_path', type=str, default='./dataset.h5', help="Path to the dataset")
-    parser.add_argument('--save_dir', type=str, default='./results_ad', help="Directory for plots and results")
-    parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use")
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--img_size', type=int, default=128, help='Image size')
-    parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1], help='Classes to consider as background (e.g. 0 1)')
-    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
+    parser = argparse.ArgumentParser(description="Advanced Evaluation of VAE for Anomaly Detection")
+    parser.add_argument('--model_path', type=str, required=True)
+    parser.add_argument('--data_path', type=str, default='./dataset.h5')
+    parser.add_argument('--save_dir', type=str, default='./results_ad')
+    parser.add_argument('--max_samples', type=int, default=None)
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--img_size', type=int, default=128)
+    parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1])
+    parser.add_argument('--latent_space_dim', type=int, default=128)
     
-    # Aggiunti argomenti necessari per coerenza con il nuovo modello
-    parser.add_argument('--proj_dim', type=int, default=64, help='Dimensione dell output della TransformHead')
-    parser.add_argument('--sigma', type=float, default=1.0, help='Parametro sigma utilizzato in fase di training per bilanciare l anomaly score')
+    # Parametri architettura
+    parser.add_argument('--proj_dim', type=int, default=64)
+    parser.add_argument('--beta', type=float, default=0.01, help='Beta per il bilanciamento KL, deve combaciare col training')
     
     args = parser.parse_args()
     main(args)
