@@ -11,6 +11,57 @@ from sklearn.metrics import roc_curve, auc
 from dataset.dataloader import get_dataloaders 
 from model.other_models_attempt.miniVAE import Encoder, Decoder
 
+def save_reconstruction_pairs(original, reconstructed, save_dir, data_split, num_images=1):
+    """
+    Salva un'immagine PNG contenente num_images coppie (Input, Ricostruzione) per immagini RGB.
+    Supporta dimensioni spaziali dinamiche.
+    """
+    # Creiamo una sottocartella dedicata alle immagini per tenere in ordine i plot
+    img_dir = os.path.join(save_dir, 'reconstructions')
+    os.makedirs(img_dir, exist_ok=True)
+    
+    # Prendiamo solo un sottoinsieme del batch (es. le prime 5)
+    n = min(num_images, original.size(0))
+    
+    # Spostiamo su CPU e convertiamo in numpy
+    # La shape iniziale è [Batch, 3, H, W]
+    orig_images = original[:n].cpu().detach().numpy()
+    recon_images = reconstructed[:n].cpu().detach().numpy()
+    
+    # Creiamo la figura: N righe (immagini), 2 colonne (Input e Output)
+    fig, axes = plt.subplots(nrows=n, ncols=2, figsize=(8, 3 * n))
+    
+    # Sicurezza nel caso n=1 per evitare errori di indicizzazione con matplotlib
+    if n == 1:
+        axes = [axes]
+        
+    for i in range(n):
+        # RIORDINAMENTO DEGLI ASSI PER IL FORMATO RGB
+        # np.transpose sposta le dimensioni: (Canali, H, W) -> (H, W, Canali)
+        # Indici originali: 0=Canali, 1=Altezza, 2=Larghezza. 
+        # Nuovo ordine richiesto: (1, 2, 0)
+        img_in = np.transpose(orig_images[i], (1, 2, 0))
+        img_out = np.transpose(recon_images[i], (1, 2, 0))
+
+        # Colonna 1: Input Originale
+        ax_orig = axes[i][0]
+        ax_orig.imshow(img_in, vmin=0.0, vmax=1.0)
+        ax_orig.set_title("Input (Real)")
+        ax_orig.axis('off')
+        
+        # Colonna 2: Output Ricostruito
+        ax_recon = axes[i][1]
+        ax_recon.imshow(img_out, vmin=0.0, vmax=1.0)
+        ax_recon.set_title("Reconstruction (VAE)")
+        ax_recon.axis('off')
+        
+    plt.tight_layout()
+    
+    # Salvataggio
+    save_path = os.path.join(img_dir, f"reconstructions_{data_split}.png")
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
+
 def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split, sigma=1.0):
     encoder.eval()
     decoder.eval()
@@ -19,6 +70,9 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     
     anomaly_scores = []
     true_labels = []
+
+    saved_images = 0
+    max_images_to_save = 5
 
     print(f"\n--- Eval on set: {data_split.upper()} ---")
     with torch.no_grad():
@@ -31,6 +85,10 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
             
             # 2. FORWARD PASS (Gestione multipla)
             encoded, mu, log_var = encoder(batch_x)
+
+            if saved_images < max_images_to_save: 
+                save_reconstruction_pairs(batch_x, reconstructed, save_dir, data_split, num_images=5)
+                saved_images += 1
             
             # 3. DETERMINISMO: Passiamo 'mu' al decoder
             reconstructed = decoder(encoded)
