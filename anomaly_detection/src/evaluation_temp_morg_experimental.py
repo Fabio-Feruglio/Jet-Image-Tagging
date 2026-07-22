@@ -11,56 +11,65 @@ from sklearn.metrics import roc_curve, auc
 from dataset.dataloader import get_dataloaders 
 from model.other_models_attempt.autoencoder import Encoder, Decoder
 
-def save_reconstruction_pairs(original, reconstructed, save_dir, data_split, num_images=1):
+def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir, data_split, num_per_class=3):
     """
-    Salva un'immagine PNG contenente num_images coppie (Input, Ricostruzione) per immagini RGB.
-    Supporta dimensioni spaziali dinamiche.
+    Salva un'immagine PNG contenente num_per_class immagini di Background e 
+    num_per_class immagini Anomale, affiancate dalle loro ricostruzioni VAE.
+    
+    Format supportato: Singolo Canale (Grayscale) [Batch, 1, H, W] con dimensioni spaziali dinamiche.
     """
-    # Creiamo una sottocartella dedicata alle immagini per tenere in ordine i plot
     img_dir = os.path.join(save_dir, 'reconstructions')
     os.makedirs(img_dir, exist_ok=True)
     
-    # Prendiamo solo un sottoinsieme del batch (es. le prime 5)
-    n = min(num_images, original.size(0))
+    # Trasformiamo i tensori in numpy array per il plotting
+    orig_np = original.cpu().detach().numpy()
+    recon_np = reconstructed.cpu().detach().numpy()
+    labels_np = labels.cpu().detach().numpy()
     
-    # Spostiamo su CPU e convertiamo in numpy
-    # La shape iniziale è [Batch, 3, H, W]
-    orig_images = original[:n].cpu().detach().numpy()
-    recon_images = reconstructed[:n].cpu().detach().numpy()
+    # Identifichiamo gli indici per background (0) e anomalie (1)
+    bg_indices = np.where(labels_np == 0)[0][:num_per_class]
+    anom_indices = np.where(labels_np == 1)[0][:num_per_class]
     
-    # Creiamo la figura: N righe (immagini), 2 colonne (Input e Output)
-    fig, axes = plt.subplots(nrows=n, ncols=2, figsize=(8, 3 * n))
+    # Uniamo gli indici trovati (prima tutti i background, poi tutte le anomalie)
+    selected_indices = np.concatenate([bg_indices, anom_indices])
+    total_images = len(selected_indices)
     
-    # Sicurezza nel caso n=1 per evitare errori di indicizzazione con matplotlib
-    if n == 1:
+    if total_images == 0:
+        print(f"Attenzione: Nessun dato trovato per salvare le ricostruzioni su {data_split}.")
+        return
+
+    # Creiamo la figura: 2 colonne (Input vs Output) x N righe totali
+    fig, axes = plt.subplots(nrows=total_images, ncols=2, figsize=(8, 3 * total_images))
+    
+    # Gestione di sicurezza per indicizzazione se total_images == 1
+    if total_images == 1:
         axes = [axes]
         
-    for i in range(n):
-        # RIORDINAMENTO DEGLI ASSI PER IL FORMATO RGB
-        # np.transpose sposta le dimensioni: (Canali, H, W) -> (H, W, Canali)
-        # Indici originali: 0=Canali, 1=Altezza, 2=Larghezza. 
-        # Nuovo ordine richiesto: (1, 2, 0)
-        img_in = np.transpose(orig_images[i], (1, 2, 0))
-        img_out = np.transpose(recon_images[i], (1, 2, 0))
+    for i, idx in enumerate(selected_indices):
+        label_type = "Background (Normal)" if labels_np[idx] == 0 else "Anomaly (New Physics)"
+        
+        # Rimuoviamo la dimensione del canale (da [1, H, W] a [H, W]) usando squeeze()
+        img_in = orig_np[idx].squeeze()
+        img_out = recon_np[idx].squeeze()
 
-        # Colonna 1: Input Originale
+        # Colonna 1: Input Originale con tipo di dato indicato nel titolo
         ax_orig = axes[i][0]
-        ax_orig.imshow(img_in, vmin=0.0, vmax=1.0)
-        ax_orig.set_title("Input (Real)")
+        ax_orig.imshow(img_in, cmap='gray', vmin=0.0, vmax=1.0)
+        ax_orig.set_title(f"Input - {label_type}")
         ax_orig.axis('off')
         
-        # Colonna 2: Output Ricostruito
+        # Colonna 2: Output Ricostruito dal VAE
         ax_recon = axes[i][1]
-        ax_recon.imshow(img_out, vmin=0.0, vmax=1.0)
-        ax_recon.set_title("Reconstruction (VAE)")
+        ax_recon.imshow(img_out, cmap='gray', vmin=0.0, vmax=1.0)
+        ax_recon.set_title(f"VAE Recon - {label_type}")
         ax_recon.axis('off')
         
     plt.tight_layout()
     
-    # Salvataggio
-    save_path = os.path.join(img_dir, f"reconstructions_{data_split}.png")
+    save_path = os.path.join(img_dir, f"reconstructions_comparison_{data_split}.png")
     plt.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
+    print(f"Confronto ricostruzioni salvato in: {save_path}")
 
 def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split):
     encoder.eval()
@@ -71,8 +80,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     anomaly_scores = []
     true_labels = []
 
-    saved_images = 0
-    max_images_to_save = 5
+    saved_images = False
     
     print(f"\n--- Eval on set: {data_split.upper()} ---")
     with torch.no_grad():
@@ -84,9 +92,21 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
             encoded = encoder(batch_x)
             reconstructed = decoder(encoded)
 
-            if saved_images < max_images_to_save:
-                save_reconstruction_pairs(batch_x, reconstructed, save_dir, data_split, num_images=5)
-                saved_images += 1
+            if not saved_images:
+                            # Verifichiamo che il batch contenga sia 0 che 1
+                            has_bg = (batch_y == 0).any()
+                            has_anom = (batch_y == 1).any()
+                            
+                            if has_bg and has_anom:
+                                save_reconstruction_pairs_by_class(
+                                    original=batch_x, 
+                                    reconstructed=reconstructed, 
+                                    labels=batch_y, 
+                                    save_dir=save_dir, 
+                                    data_split=data_split, 
+                                    num_per_class=3 # Salverà 3 coppie di Background e 3 di Anomalie
+                                )
+                                saved_images = True
 
             # Anomaly score
             # shape [batch_size, channels, height, width]
