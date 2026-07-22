@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from .dataset.dataloader import get_dataloaders
-from .model.other_models_attempt.autoencoder import Encoder, Decoder
+from dataset.dataloader import get_dataloaders
+from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 
 def objective(trial, args):
