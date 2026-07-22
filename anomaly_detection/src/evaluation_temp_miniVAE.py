@@ -79,10 +79,6 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
             
-            # 1. NORMALIZZAZIONE DEI DATI
-            if batch_x.max() > 1.0:
-                batch_x = batch_x / 255.0
-            
             # 2. FORWARD PASS (Gestione multipla)
             encoded, mu, log_var = encoder(batch_x)
             
