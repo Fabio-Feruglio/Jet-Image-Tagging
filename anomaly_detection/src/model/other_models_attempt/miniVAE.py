@@ -2,12 +2,30 @@ import torch
 from torch import nn
 from .mininception import MinInception
 from .resnet10 import ResNet10
+import torch.nn.functional as F
 
 def reparameterize(mu, log_var):
     std = torch.exp(0.5 * log_var)
     eps = torch.randn_like(std)
     return mu + eps * std
 
+class TransformHead(nn.Module):
+    def __init__(self, latent_space_dim, proj_dim=64):
+        super().__init__()
+        # Una semplice rete MLP a due strati
+        self.net = nn.Sequential(
+            nn.Linear(latent_space_dim, latent_space_dim),
+            nn.BatchNorm1d(latent_space_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(latent_space_dim, proj_dim)
+        )
+
+    def forward(self, x):
+        x = self.net(x)
+        # La normalizzazione L2 mappa i vettori sulla superficie di un'ipersfera,
+        # rendendo il calcolo delle distanze molto più stabile per la loss contrastiva.
+        return F.normalize(x, dim=1)
+    
 class Encoder(nn.Module):
     def __init__(self, latent_space_dim, in_features=1):
         super().__init__()
