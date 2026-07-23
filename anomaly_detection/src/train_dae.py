@@ -12,12 +12,12 @@ from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 def apply_gaussian_noise(x, noise_factor=0.05):
     """
-    Aggiunge rumore gaussiano per simulare fluttuazioni continue (es. rumore termico/calorimetrico).
-    Clampa i valori tra 0 e 1 per mantenere il range corretto delle jet images.
+    Aggiunge rumore gaussiano e clampa solo il limite inferiore a 0.0 
+    per evitare energie fisicamente impossibili (negative).
     """
     noise = torch.randn_like(x) * noise_factor
     noisy_x = x + noise
-    return torch.clamp(noisy_x, 0., 1.)
+    return torch.clamp(noisy_x, min=0.0)
 
 def train_epoch(encoder, decoder, dataloader, optimizer, device, noise_factor):
     encoder.train()
