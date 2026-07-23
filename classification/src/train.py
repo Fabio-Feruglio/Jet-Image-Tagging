@@ -9,6 +9,7 @@ import wandb
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
 from model.inceptionv3 import InceptionV3
+from model.mini_ensemble import MiniResNet, MiniInception
 
 ### TRAINING ###
 def train_epoch(model, dataloader, loss_fn, optimizer, device):
@@ -95,8 +96,12 @@ def main(args):
             print(f"ID: {wandb_run_id}")
 
     # Wandb setup
+    if args.mini:
+        project_name = "jet-tagging-mini"
+    else:
+        project_name = "jet-tagging-main"
     run = wandb.init(
-        project = "jet-tagging-main",             # Project name
+        project = project_name,             # Project name
         name = f"train_{args.mode}_lr{args.lr}",  # Name for the run
         config = vars(args),
         id = wandb_run_id,     
@@ -114,11 +119,18 @@ def main(args):
     
     # 4. Initialize model and loss function
     if args.mode == 'resnet':
-        model = ResNet50().to(device)
+        if args.mini:
+            model = MiniResNet().to(device)
+        else:
+            model = ResNet50().to(device)
     elif args.mode == 'inception':
-        model = InceptionV3().to(device)
+        if args.mini:
+            model = MiniInception().to(device)
+        else:
+            model = InceptionV3().to(device)
     else:
         raise ValueError("Non-supported mode. Please choose 'resnet' or 'inception'.")
+    
     loss_fn = torch.nn.CrossEntropyLoss()
 
     # 5. Define an optimizer 
@@ -204,6 +216,7 @@ if __name__ == "__main__":
     # Command line args configuration
     parser = argparse.ArgumentParser(description="Train the ensemble model for jet image classification")
     parser.add_argument('--mode', type=str, default='resnet', choices=['resnet', 'inception'], help="Choose the model to train: 'resnet' or 'inception'")
+    parser.add_argument('--mini', type=bool, default=False, help='Use a smaller network')
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
