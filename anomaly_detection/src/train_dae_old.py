@@ -10,41 +10,38 @@ import wandb
 from dataset.dataloader import get_dataloaders
 from model.other_models_attempt.autoencoder import Encoder, Decoder
 
-def apply_gaussian_noise(x, noise_factor=0.05):
-    """
-    Aggiunge rumore gaussiano per simulare fluttuazioni continue (es. rumore termico/calorimetrico).
-    Clampa i valori tra 0 e 1 per mantenere il range corretto delle jet images.
-    """
-    noise = torch.randn_like(x) * noise_factor
-    noisy_x = x + noise
-    return torch.clamp(noisy_x, 0., 1.)
+def apply_spatial_dropout(x, drop_prob=0.2):
+    mask = (torch.rand_like(x) > drop_prob).float()
+    return x * mask
 
-def train_epoch(encoder, decoder, dataloader, optimizer, device, noise_factor):
+def weighted_mse_loss(reconstructed_x, original_x, active_weight=5.0):
+    mse_per_pixel = F.mse_loss(reconstructed_x, original_x, reduction='none')
+    active_mask = (original_x > 0).float()
+    weights = 1.0 + (active_weight - 1.0) * active_mask
+    return (mse_per_pixel * weights).mean()
+
+def train_epoch(encoder, decoder, dataloader, optimizer, device, active_weight, noise_factor):
     encoder.train()
     decoder.train()
     losses = []
     train_iterator = tqdm(dataloader)
     for x_batch, _ in train_iterator:
         x_batch = x_batch.to(device)
-        
-        # Aggiungiamo rumore gaussiano all'input
-        x_corrupted = apply_gaussian_noise(x_batch, noise_factor=noise_factor)
+        x_corrupted = apply_spatial_dropout(x_batch, drop_prob=noise_factor)
         
         encoded = encoder(x_corrupted)
         reconstructed_x = decoder(encoded)
-        
-        # La loss è la MSE standard calcolata rispetto all'immagine pulita originale
-        loss = F.mse_loss(reconstructed_x, x_batch) 
+        loss = weighted_mse_loss(reconstructed_x, x_batch, active_weight=active_weight) 
 
         optimizer.zero_grad() 
         loss.backward() 
         optimizer.step()  
 
-        train_iterator.set_description(f"Train loss: {loss.item():.6f}")
+        train_iterator.set_description(f"Train loss: {loss.item():.4f}")
         losses.append(loss.item())
     return np.mean(losses)
 
-def val_epoch(encoder, decoder, dataloader, device):
+def val_epoch(encoder, decoder, dataloader, device, active_weight):
     encoder.eval()
     decoder.eval()
     losses = []
@@ -52,14 +49,12 @@ def val_epoch(encoder, decoder, dataloader, device):
         val_iterator = tqdm(dataloader)
         for x_batch, _ in val_iterator:
             x_batch = x_batch.to(device)
-            # In validation valutiamo l'immagine pulita, senza rumore
+            # In validation NO rumore
             encoded = encoder(x_batch)
             reconstructed_x = decoder(encoded)
-            
-            loss = F.mse_loss(reconstructed_x, x_batch)
-            
+            loss = weighted_mse_loss(reconstructed_x, x_batch, active_weight=active_weight)
             losses.append(loss.item())
-            val_iterator.set_description(f"Val loss: {loss.item():.6f}")
+            val_iterator.set_description(f"Val loss: {loss.item():.4f}")
     return np.mean(losses)
 
 def main(args):
@@ -78,7 +73,7 @@ def main(args):
 
     run = wandb.init(
         project="jet-tagging-anomaly-detection", 
-        name=f"train_dae_gauss_lr{args.lr}", 
+        name=f"train_dae_lr{args.lr}", 
         config=vars(args), 
         id=wandb_run_id, 
         resume="allow"
@@ -123,11 +118,11 @@ def main(args):
             print(f"No file found in '{args.resume_from}', starting from epoch = 0.")
     
     for epoch in range(start_epoch, args.epochs):
-        train_loss = train_epoch(encoder, decoder, train_dataloader, optimizer, device, args.noise_factor)
-        val_loss = val_epoch(encoder, decoder, valid_dataloader, device)
+        train_loss = train_epoch(encoder, decoder, train_dataloader, optimizer, device, args.active_weight, args.noise_factor)
+        val_loss = val_epoch(encoder, decoder, valid_dataloader, device, args.active_weight)
 
-        print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.6f}')
-        print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.6f}')
+        print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f}')
+        print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.4f}')
 
         writer.add_scalar('Loss/Train', train_loss, epoch)
         writer.add_scalar('Loss/Validation', val_loss, epoch)
@@ -175,7 +170,8 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--latent_space_dim', type=int, default=128)
-    parser.add_argument('--noise_factor', type=float, default=0.05, help="Intensità del rumore gaussiano (es. 0.05)")
+    parser.add_argument('--active_weight', type=float, default=5.0)
+    parser.add_argument('--noise_factor', type=float, default=0.2)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--max_samples', type=int, default=None)
