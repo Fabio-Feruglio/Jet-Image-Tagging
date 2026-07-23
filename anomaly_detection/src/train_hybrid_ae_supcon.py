@@ -8,30 +8,40 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 
 from dataset.dataloader import get_dataloaders
-from model.other_models_attempt.autoencoder import Encoder, Decoder
+from model.other_models_attempt.hybrid_ae_supcon import HybridEncoder, Decoder
 
-def apply_spatial_dropout(x, drop_prob=0.2):
-    mask = (torch.rand_like(x) > drop_prob).float()
-    return x * mask
+class SupConLoss(torch.nn.Module):
+    def __init__(self, temperature=0.1):
+        super().__init__()
+        self.temperature = temperature
+    def forward(self, features, labels):
+        device, batch_size = features.device, features.shape[0]
+        sim_matrix = torch.matmul(features, features.T) / self.temperature
+        labels = labels.contiguous().view(-1, 1)
+        mask = torch.eq(labels, labels.T).float().to(device)
+        logits_mask = torch.scatter(torch.ones_like(mask), 1, torch.arange(batch_size).view(-1, 1).to(device), 0)
+        mask = mask * logits_mask
+        sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)
+        logits = sim_matrix - sim_max.detach()
+        exp_logits = torch.exp(logits) * logits_mask
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True) + 1e-9)
+        mask_sum = mask.sum(1)
+        mask_sum = torch.where(mask_sum == 0, torch.ones_like(mask_sum), mask_sum)
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask_sum
+        return -mean_log_prob_pos.mean()
 
-def weighted_mse_loss(reconstructed_x, original_x, active_weight=5.0):
-    mse_per_pixel = F.mse_loss(reconstructed_x, original_x, reduction='none')
-    active_mask = (original_x > 0).float()
-    weights = 1.0 + (active_weight - 1.0) * active_mask
-    return (mse_per_pixel * weights).mean()
-
-def train_epoch(encoder, decoder, dataloader, optimizer, device, active_weight, noise_factor):
-    encoder.train()
-    decoder.train()
+def train_epoch(encoder, decoder, dataloader, optimizer, device, supcon_loss_fn, lambda_weight):
+    encoder.train(); decoder.train()
     losses = []
     train_iterator = tqdm(dataloader)
-    for x_batch, _ in train_iterator:
-        x_batch = x_batch.to(device)
-        x_corrupted = apply_spatial_dropout(x_batch, drop_prob=noise_factor)
-        
-        encoded = encoder(x_corrupted)
-        reconstructed_x = decoder(encoded)
-        loss = weighted_mse_loss(reconstructed_x, x_batch, active_weight=active_weight) 
+    for x_batch, labels in train_iterator:
+        x_batch, labels = x_batch.to(device), labels.to(device)
+        z, p = encoder(x_batch)
+        reconstructed_x = decoder(z)
+
+        mse_loss = F.mse_loss(reconstructed_x, x_batch)
+        supcon_loss = supcon_loss_fn(p, labels)
+        loss = mse_loss + lambda_weight * supcon_loss
 
         optimizer.zero_grad() 
         loss.backward() 
@@ -41,18 +51,20 @@ def train_epoch(encoder, decoder, dataloader, optimizer, device, active_weight, 
         losses.append(loss.item())
     return np.mean(losses)
 
-def val_epoch(encoder, decoder, dataloader, device, active_weight):
-    encoder.eval()
-    decoder.eval()
+def val_epoch(encoder, decoder, dataloader, device, supcon_loss_fn, lambda_weight):
+    encoder.eval(); decoder.eval()
     losses = []
     with torch.no_grad():
         val_iterator = tqdm(dataloader)
-        for x_batch, _ in val_iterator:
-            x_batch = x_batch.to(device)
-            # In validation NO rumore
-            encoded = encoder(x_batch)
-            reconstructed_x = decoder(encoded)
-            loss = weighted_mse_loss(reconstructed_x, x_batch, active_weight=active_weight)
+        for x_batch, labels in val_iterator:
+            x_batch, labels = x_batch.to(device), labels.to(device)
+            z, p = encoder(x_batch)
+            reconstructed_x = decoder(z)
+            mse_loss = F.mse_loss(reconstructed_x, x_batch)
+            # Calcoliamo supcon_loss anche in validation se le label sono note (background)
+            # NB: Se ci sono anomalie (classe > 1), SupCon le scarta, ma su valid_loader ci sono solo bg.
+            supcon_loss = supcon_loss_fn(p, labels)
+            loss = mse_loss + lambda_weight * supcon_loss
             losses.append(loss.item())
             val_iterator.set_description(f"Val loss: {loss.item():.4f}")
     return np.mean(losses)
@@ -67,7 +79,7 @@ def main(args):
         temp_checkpoint = torch.load(args.resume_from, map_location='cpu')
         wandb_run_id = temp_checkpoint.get('wandb_run_id', None)
 
-    run = wandb.init(project="jet-tagging-anomaly-detection", name=f"train_dae_lr{args.lr}", config=vars(args), id=wandb_run_id, resume="allow")
+    run = wandb.init(project="jet-tagging-anomaly-detection", name=f"train_hybrid_lr{args.lr}", config=vars(args), id=wandb_run_id, resume="allow")
     
     train_dataloader, valid_dataloader, _ = get_dataloaders(
         data_filepath=args.data_path, bg_classes=args.bg_classes,
@@ -75,9 +87,10 @@ def main(args):
         num_workers=min(4, os.cpu_count() or 1), max_samples=args.max_samples
     )
     
-    encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
+    encoder = HybridEncoder(latent_space_dim=args.latent_space_dim, proj_dim=64).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=args.lr, weight_decay=args.weight_decay)
+    supcon_loss_fn = SupConLoss(temperature=0.1)
 
     start_epoch, no_improvement_epochs = 0, 0
     best_val_loss = float('inf')
@@ -92,8 +105,8 @@ def main(args):
         no_improvement_epochs = checkpoint.get('no_improvement_epochs', 0)
     
     for epoch in range(start_epoch, args.epochs):
-        train_loss = train_epoch(encoder, decoder, train_dataloader, optimizer, device, args.active_weight, args.noise_factor)
-        val_loss = val_epoch(encoder, decoder, valid_dataloader, device, args.active_weight)
+        train_loss = train_epoch(encoder, decoder, train_dataloader, optimizer, device, supcon_loss_fn, args.lambda_weight)
+        val_loss = val_epoch(encoder, decoder, valid_dataloader, device, supcon_loss_fn, args.lambda_weight)
 
         print(f'EPOCH {epoch+1}/{args.epochs} - Train: {train_loss:.4f} | Val: {val_loss:.4f}')
         writer.add_scalar('Loss/Train', train_loss, epoch)
@@ -112,9 +125,9 @@ def main(args):
             'decoder_state_dict': decoder.state_dict(), 'optimizer_state_dict': optimizer.state_dict(),
             'best_val_loss': best_val_loss, 'no_improvement_epochs': no_improvement_epochs, 'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'dae_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'hybrid_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'dae_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'hybrid_best.pth'))
 
         if no_improvement_epochs >= args.patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -127,11 +140,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1])
     parser.add_argument('--epochs', type=int, default=30)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--latent_space_dim', type=int, default=128)
-    parser.add_argument('--active_weight', type=float, default=5.0)
-    parser.add_argument('--noise_factor', type=float, default=0.2)
+    parser.add_argument('--lambda_weight', type=float, default=0.1)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--max_samples', type=int, default=None)
