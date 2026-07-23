@@ -9,6 +9,7 @@ import numpy as np
 
 from dataset.dataloader import get_dataloaders
 from model.ensemble import EnsembleModel
+from model.mini_ensemble import MiniEnsemble
 
 def set_backbone_trainable(model, trainable: bool):
     """
@@ -37,9 +38,14 @@ def objective(trial, args):
     print(f"Dropout: {dropout:.2f}, Hidden Layer Size: {hidden_layer_size}")
     print(f"LR MLP: {lr_mlp:.6f}, LR Backbone: {lr_backbone:.6f}")
     print(f"Weight Decay: {weight_decay:.6f}, Batch size: {batch_size}, Frozen Epochs: {frozen_epochs}")
-    
+
+    if args.mini:
+        project_name = "jet-tagging-tuning-mini"
+    else:
+        project_name = "jet-tagging-tuning"
+
     wandb.init(
-        project = "jet-tagging-tuning",
+        project = project_name,
         group = "optuna-ensemble",
         name = f"trial_{trial.number}",
         config = trial.params,
@@ -53,15 +59,24 @@ def objective(trial, args):
         num_workers = min(4, os.cpu_count() or 1),
         max_samples = args.max_samples
     )
-    
-    model = EnsembleModel(
-        num_classes = 5, 
-        resnet_path = args.resnet_path, 
-        inception_path = args.inception_path, 
-        weights_device = str(device),
-        dropout_mlp = dropout,
-        hidden_layer_size = hidden_layer_size
-    ).to(device)
+    if args.mini:
+        model = MiniEnsemble(
+            num_classes = 5, 
+            resnet_path = args.resnet_path, 
+            inception_path = args.inception_path, 
+            weights_device = str(device),
+            dropout_mlp = dropout,
+            hidden_layer_size = hidden_layer_size
+        ).to(device)
+    else:
+        model = EnsembleModel(
+            num_classes = 5, 
+            resnet_path = args.resnet_path, 
+            inception_path = args.inception_path, 
+            weights_device = str(device),
+            dropout_mlp = dropout,
+            hidden_layer_size = hidden_layer_size
+        ).to(device)
     
     loss_fn = nn.CrossEntropyLoss()
 
@@ -214,7 +229,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/JetTagging/data/jet_images_299.h5')
     parser.add_argument('--save_dir', type=str, default='/content/drive/MyDrive/JetTagging/optuna_logs')
-    
+    parser.add_argument('--mini', type=bool, default=False, help='Use a smaller network')
     parser.add_argument('--resnet_path', type=str, default=None, help='Path to pre-trained ResNet weights')
     parser.add_argument('--inception_path', type=str, default=None, help='Path to pre-trained Inception weights')
     

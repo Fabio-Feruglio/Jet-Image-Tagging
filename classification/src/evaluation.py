@@ -13,6 +13,7 @@ from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
 from model.inceptionv3 import InceptionV3
 from model.ensemble import EnsembleModel
+from model.mini_ensemble import MiniResNet, MiniInception, MiniEnsemble
 
 def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, model_name, num_classes=5,
                      class_names=['gluon', 'light quark', 'Top', 'W boson', 'Z boson']):
@@ -109,15 +110,30 @@ def main(args):
     
     # Initialize the model and load weights
     if args.model == 'resnet':
-        model = ResNet50().to(device)
+        if args.mini:
+            model = MiniResNet().to(device)
+        else:
+            model = ResNet50().to(device)
     elif args.model == 'inception':
-        model = InceptionV3().to(device)
+        if args.mini:
+            model = MiniInception().to(device)
+        else:
+            model = InceptionV3().to(device)
     elif args.model == 'ensemble':
-        model = EnsembleModel(num_classes = 5, 
-                              resnet_path = args.resnet_weights, 
-                              inception_path = args.inception_weights, 
-                              weights_device = str(device),
-                              hidden_layer_size = args.hidden_layer_size).to(device)
+        if args.mini:
+            model = MiniEnsemble(num_classes = 5, 
+                        resnet_path = args.resnet_weights, 
+                        inception_path = args.inception_weights, 
+                        weights_device = str(device),
+                        hidden_layer_size = args.hidden_layer_size
+                    ).to(device)
+        else:
+            model = EnsembleModel(num_classes = 5, 
+                        resnet_path = args.resnet_weights, 
+                        inception_path = args.inception_weights, 
+                        weights_device = str(device),
+                        hidden_layer_size = args.hidden_layer_size
+                    ).to(device)
     else:
         raise ValueError("Invalid model type. Choose from 'resnet', 'inception', or 'ensemble'.")
     
@@ -137,6 +153,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluation of ResNet50 model")
     parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception', 'ensemble'], help="Choose the model to train: 'resnet', 'inception', or 'ensemble'")
+    parser.add_argument('--mini', type=bool, default=False, help='Use a smaller network')
     parser.add_argument('--model_path', type=str, required=True, help="Model weights path")
     parser.add_argument('--data_path', type=str, default='./data_lab04/jet_images_299.h5', help="Path to the dataset")
     parser.add_argument('--save_dir', type=str, default='./results', help="Directory for plots and results")
