@@ -42,7 +42,7 @@ class Conv2d_bn(nn.Module):
             x = self.relu(x)
         return x
 
-### Basic Block for ResNet10
+### Basic Block for MiniResNet
 class BasicBlock(nn.Module):
 
     def __init__(self, in_filters, out_filters, stride=1, expansion=1):
@@ -85,8 +85,8 @@ class BasicBlock(nn.Module):
 
         return out
 
-### ResNet10 Model
-class ResNet10(nn.Module):
+### MiniResNet Model
+class MiniResNet(nn.Module):
     def __init__(self, in_features = 1, out_features = 5):
         super().__init__()
         self.apply(self._init_weights)
@@ -240,7 +240,7 @@ class InceptionB(nn.Module):
         return torch.cat([branch1x1, branch7x7, branch7x7dbl, branch_pool], dim=1)
 
 ### MiniInception Model 
-class MinInception(nn.Module):
+class MiniInception(nn.Module):
     def __init__(self, in_channels=1, out_features=5):
         super().__init__()
 
@@ -278,8 +278,8 @@ class MinInception(nn.Module):
 class MiniEnsemble(nn.Module):
     def __init__(self, num_classes = 5, resnet_path = None, inception_path = None, weights_device = 'cpu', hidden_layer_size = 512, dropout_mlp = 0.5):
         super().__init__()
-        self.resnet = ResNet10(out_features = num_classes)
-        self.inception = MinInception(out_features = num_classes)
+        self.resnet = MiniResNet(out_features = num_classes)
+        self.inception = MiniInception(out_features = num_classes)
 
         if resnet_path and os.path.exists(resnet_path):
             print(f"Load ResNet weights from {resnet_path}")
