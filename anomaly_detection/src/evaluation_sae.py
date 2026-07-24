@@ -7,11 +7,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
 from sklearn.metrics import roc_curve, auc
-from sklearn.ensemble import IsolationForest
 
-# Importiamo il nuovo dataloader
-from dataset.dataloader_supcon import get_dataloaders
-from model.other_models_attempt.hybrid_ae_supcon import HybridEncoder, Decoder
+from dataset.dataloader import get_dataloaders
+from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir, data_split, model_name, num_per_class=3):
     img_dir = os.path.join(save_dir, 'reconstructions')
@@ -52,10 +50,10 @@ def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir
     plt.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
 
-def evaluate_hybrid(dataloader, encoder, decoder, device, save_dir, data_split):
+def evaluate_sae(dataloader, encoder, decoder, device, save_dir, data_split):
     encoder.eval()
     decoder.eval()
-    mse_scores, p_vectors, true_labels = [], [], []
+    mse_scores, true_labels = [], []
     saved_images = False
 
     print(f"\n--- Eval on set: {data_split.upper()} ---")
@@ -63,8 +61,8 @@ def evaluate_hybrid(dataloader, encoder, decoder, device, save_dir, data_split):
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
             
-            z, p = encoder(batch_x)
-            reconstructed = decoder(z)
+            encoded = encoder(batch_x)
+            reconstructed = decoder(encoded)
 
             if not saved_images:
                 has_bg = (batch_y == 0).any()
@@ -72,7 +70,7 @@ def evaluate_hybrid(dataloader, encoder, decoder, device, save_dir, data_split):
                 if has_bg and has_anom:
                     save_reconstruction_pairs_by_class(
                         original=batch_x, reconstructed=reconstructed, labels=batch_y, 
-                        save_dir=save_dir, data_split=data_split, model_name="Hybrid", num_per_class=3
+                        save_dir=save_dir, data_split=data_split, model_name="SAE", num_per_class=3
                     )
                     saved_images = True
 
@@ -80,46 +78,37 @@ def evaluate_hybrid(dataloader, encoder, decoder, device, save_dir, data_split):
             mse_per_image = mse_per_pixel.view(mse_per_pixel.size(0), -1).mean(dim=1)
             
             mse_scores.extend(mse_per_image.cpu().numpy())
-            p_vectors.extend(p.cpu().numpy())
             true_labels.extend(batch_y.numpy())
 
     mse_scores = np.array(mse_scores)
-    p_vectors = np.array(p_vectors)
     true_labels = np.array(true_labels)
+    mean_loss = np.mean(mse_scores)
+    print(f"\nResults {data_split.upper()}:")
+    print(f"Mean Reconstruction Loss: {mean_loss:.6f}")
     
-    print("Addestramento Isolation Forest sui vettori proiettati...")
-    iso_forest = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
-    iso_forest.fit(p_vectors)
-    if_scores = -iso_forest.decision_function(p_vectors)
-
     if np.sum(true_labels == 1) > 0:
-        metrics = {'Reconstruction_MSE': mse_scores, 'Contrastive_Space_IsolationForest': if_scores}
+        plt.figure(figsize=(10, 6))
+        sns.histplot(mse_scores[true_labels == 0], color='blue', label='Background', kde=True, stat='density', alpha=0.5, bins=50)
+        sns.histplot(mse_scores[true_labels == 1], color='red', label='Anomalies', kde=True, stat='density', alpha=0.5, bins=50)
+        plt.xlabel('Reconstruction Error (MSE)')
+        plt.ylabel('Density')
+        plt.title(f'SAE Score Dist - {data_split.capitalize()}')
+        plt.legend()
+        plt.savefig(os.path.join(save_dir, f'loss_dist_sae_{data_split}.png'), bbox_inches='tight')
+        plt.close()
 
-        for metric_name, scores in metrics.items():
-            plt.figure(figsize=(10, 6))
-            sns.histplot(scores[true_labels == 0], color='blue', label='Background', kde=True, stat='density', alpha=0.5, bins=50)
-            sns.histplot(scores[true_labels == 1], color='red', label='Anomalies', kde=True, stat='density', alpha=0.5, bins=50)
-            plt.xlabel(f'{metric_name.replace("_", " ")} Score')
-            plt.ylabel('Density')
-            plt.title(f'{metric_name.replace("_", " ")} - {data_split.capitalize()}')
-            plt.legend()
-            plt.savefig(os.path.join(save_dir, f'loss_dist_{metric_name}_{data_split}.png'), bbox_inches='tight')
-            plt.close()
-
-        plt.figure(figsize=(10, 8))
-        fpr_mse, tpr_mse, _ = roc_curve(true_labels, mse_scores)
-        plt.plot(fpr_mse, tpr_mse, lw=2, label=f'Reconstruction (MSE) AUC = {auc(fpr_mse, tpr_mse):.3f}')
-        fpr_if, tpr_if, _ = roc_curve(true_labels, if_scores)
-        plt.plot(fpr_if, tpr_if, lw=2, label=f'Contrastive Space (IsoForest) AUC = {auc(fpr_if, tpr_if):.3f}')
-        
+        fpr, tpr, _ = roc_curve(true_labels, mse_scores)
+        roc_auc = auc(fpr, tpr)
+        plt.figure(figsize=(8, 8))
+        plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.3f})')
         plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim([0.0, 1.0])
         plt.ylim([0.0, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.title(f'Hybrid SupCon ROC - {data_split.capitalize()}')
+        plt.title(f'SAE Anomaly Detection ROC - {data_split.capitalize()}')
         plt.legend(loc="lower right")
-        plt.savefig(os.path.join(save_dir, f'roc_hybrid_comparison_{data_split}.png'), bbox_inches='tight')
+        plt.savefig(os.path.join(save_dir, f'roc_sae_{data_split}.png'), bbox_inches='tight')
         plt.close()
     else:
         print(f"Skipping ROC curve for {data_split.upper()} (No anomalies present).")
@@ -139,7 +128,7 @@ def main(args):
         max_samples = args.max_samples
     )
     
-    encoder = HybridEncoder(latent_space_dim=args.latent_space_dim, proj_dim=64).to(device)
+    encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     
     print(f"Loading model weights from: {args.model_path}")
@@ -152,18 +141,18 @@ def main(args):
         encoder.load_state_dict(checkpoint)
         decoder.load_state_dict(checkpoint)
 
-    evaluate_hybrid(valid_loader, encoder, decoder, device, args.save_dir, data_split="validation")
-    evaluate_hybrid(test_loader, encoder, decoder, device, args.save_dir, data_split="test")
+    evaluate_sae(valid_loader, encoder, decoder, device, args.save_dir, data_split="validation")
+    evaluate_sae(test_loader, encoder, decoder, device, args.save_dir, data_split="test")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, required=True)
     parser.add_argument('--data_path', type=str, default='./dataset.h5')
-    parser.add_argument('--save_dir', type=str, default='./results_hybrid_supcon')
+    parser.add_argument('--save_dir', type=str, default='./results_sae')
     parser.add_argument('--max_samples', type=int, default=None)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1])
-    parser.add_argument('--latent_space_dim', type=int, default=128)
+    parser.add_argument('--latent_space_dim', type=int, default=16) 
     args = parser.parse_args()
     main(args)

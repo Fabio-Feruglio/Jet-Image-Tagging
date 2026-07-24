@@ -7,7 +7,8 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import wandb
 
-from dataset.dataloader import get_dataloaders
+# MODIFICA: Importiamo il nuovo dataloader
+from dataset.dataloader_supcon import get_dataloaders
 from model.other_models_attempt.hybrid_ae_supcon import HybridEncoder, Decoder
 
 class SupConLoss(torch.nn.Module):
@@ -94,13 +95,15 @@ def main(args):
         resume="allow"
     )
     
+    # MODIFICA: Parametro binary_train_labels impostato su False per addestrare correttamente SupCon
     train_dataloader, valid_dataloader, _ = get_dataloaders(
         data_filepath=args.data_path, 
         bg_classes=args.bg_classes,
         img_size=args.img_size, 
         batch_size=args.batch_size, 
         num_workers=min(4, os.cpu_count() or 1), 
-        max_samples=args.max_samples
+        max_samples=args.max_samples,
+        binary_train_labels=False
     )
     
     encoder = HybridEncoder(latent_space_dim=args.latent_space_dim, proj_dim=64).to(device)
