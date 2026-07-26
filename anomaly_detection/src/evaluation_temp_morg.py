@@ -77,28 +77,57 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     # ---------------------------------------------------------
     # PLOT 2: ROC Curve 
     # ---------------------------------------------------------
+    # ---------------------------------------------------------
+    # PLOT 2 & 3: ROC Curve & Background Rejection Curve
+    # ---------------------------------------------------------
     roc_auc = None
     if np.sum(true_labels == 1) > 0:
         fpr, tpr, thresholds = roc_curve(true_labels, anomaly_scores)
         roc_auc = auc(fpr, tpr)
         
+        # Standard ROC Curve ---
         plt.figure(figsize=(8, 8))
         plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.3f})')
         plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
         
-        plt.xlabel('False Positive Rate (Background Mistag)')
-        plt.ylabel('True Positive Rate (Anomaly Efficiency)')
-        plt.title(f'Anomaly Detection ROC Curve - {data_split.capitalize()}')
+        plt.xlabel('False Positive Rate (Background Efficiency $\epsilon_B$)')
+        plt.ylabel('True Positive Rate (Signal Efficiency $\epsilon_S$)')
+        plt.title(f'Standard ROC Curve - {data_split.capitalize()}')
         plt.legend(loc="lower right")
         
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
-        print(f"ROC plot saved in: {roc_path}")
+
+        # Background Rejection (e_S vs 1/e_B) ---
+        plt.figure(figsize=(8, 8))
+        
+        valid_idx = fpr > 0
+        fpr_valid = fpr[valid_idx]
+        tpr_valid = tpr[valid_idx]
+        
+        # Rejection = 1 / FPR
+        rejection = 1.0 / fpr_valid
+        
+        plt.plot(tpr_valid, rejection, color='purple', lw=2, label=f'Autoencoder Rejection')
+        plt.yscale('log') 
+        plt.xlim((0.0, 1.0))
+        
+        plt.xlabel('Signal Efficiency ($\epsilon_S$)')
+        plt.ylabel('Background Rejection ($1/\epsilon_B$)')
+        plt.title(f'Background Rejection Curve - {data_split.capitalize()}')
+        plt.grid(True, which="both", ls="--", alpha=0.5)
+        plt.legend(loc="upper right")
+        
+        rej_path = os.path.join(save_dir, f'rejection_curve_{data_split}_{model_name}.png')
+        plt.savefig(rej_path, bbox_inches='tight')
+        plt.close()
+        
+        print(f"ROC and Rejection plots saved in: {save_dir}")
     else:
-        print(f"Skipping ROC curve for {data_split.upper()} (No anomalies present).")
+        print(f"Skipping ROC and Rejection curves for {data_split.upper()} (No anomalies present).")
 
     # ---------------------------------------------------------
     # PLOT 3: Latent Space Projections (PCA & t-SNE)
