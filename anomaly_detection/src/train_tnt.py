@@ -18,14 +18,14 @@ def apply_pepper_noise(images, prob=0.1):
 def train_model(encoder, decoder, train_loader, val_loader, args, device, writer, model_name="ae"):
     loss_fn = torch.nn.MSELoss()
     
-    # Utilizzo di Adagrad per l'ottimizzazione
-    optimizer = torch.optim.Adagrad(list(encoder.parameters()) + list(decoder.parameters()), 
-                                    lr=args.lr, weight_decay=args.weight_decay)
+    # --- RIPRISTINATO ADAM ---
+    optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), 
+                                 lr=args.lr, weight_decay=args.weight_decay)
     
     best_val_loss = float('inf')
     patience_counter = 0
 
-    print(f"\n=== Inizio addestramento {model_name} (Adagrad) ===")
+    print(f"\n=== Inizio addestramento {model_name} (Adam) ===")
     for epoch in range(args.epochs):
         encoder.train()
         decoder.train()
@@ -58,7 +58,7 @@ def train_model(encoder, decoder, train_loader, val_loader, args, device, writer
         val_loss = np.mean(val_losses)
         print(f"[{model_name}] Epoch {epoch+1} | Avg Train Loss: {train_loss:.4f} | Avg Val Loss: {val_loss:.4f}")
 
-        # --- REINTEGRATO: Log su TensorBoard e WandB ---
+        # Log TensorBoard e WandB
         writer.add_scalar(f'Loss/Train_{model_name}', train_loss, epoch)
         writer.add_scalar(f'Loss/Validation_{model_name}', val_loss, epoch)
         writer.flush()
@@ -68,7 +68,6 @@ def train_model(encoder, decoder, train_loader, val_loader, args, device, writer
             f"Loss/Train_{model_name}": train_loss,
             f"Loss/Validation_{model_name}": val_loss
         })
-        # -----------------------------------------------
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -82,7 +81,7 @@ def train_model(encoder, decoder, train_loader, val_loader, args, device, writer
                 break
 
 def extract_pseudo_anomalies(encoder, decoder, tag_loader, device, percentile, batch_size):
-    print(f"\n=== Estrazione Pseudo-Anomalie (Top {100-percentile}%) ===")
+    print(f"\n=== Estrazione Pseudo-Anomalie (Top {100-percentile:.1f}%) ===")
     encoder.eval()
     decoder.eval()
     mse_fn = torch.nn.MSELoss(reduction='none')
@@ -105,7 +104,10 @@ def extract_pseudo_anomalies(encoder, decoder, tag_loader, device, percentile, b
     threshold = np.percentile(all_losses, percentile)
     
     mask = all_losses > threshold
-    pseudo_inputs = torch.cat(all_inputs)[mask]
+    
+    # FIX BUG INDEXING: conversione esplicita della maschera numpy in tensore PyTorch
+    torch_mask = torch.from_numpy(mask)
+    pseudo_inputs = torch.cat(all_inputs)[torch_mask]
     pseudo_labels = np.array(all_labels)[mask]
     
     true_anomalies = np.sum(pseudo_labels == 1)
@@ -114,7 +116,7 @@ def extract_pseudo_anomalies(encoder, decoder, tag_loader, device, percentile, b
     print(f"-> Purezza vera (Segnale reale nel campione): {true_anomalies}/{len(pseudo_inputs)} ({true_anomalies/len(pseudo_inputs)*100:.1f}%)")
     
     dataset = TensorDataset(pseudo_inputs, torch.from_numpy(pseudo_labels))
-    val_size = int(0.15 * len(dataset))
+    val_size = max(1, int(0.15 * len(dataset)))
     train_size = len(dataset) - val_size
     train_ds, val_ds = random_split(dataset, [train_size, val_size])
     
@@ -126,7 +128,7 @@ def main(args):
     
     os.makedirs(args.save_dir, exist_ok=True)
     
-    # --- REINTEGRATO: Setup TensorBoard e WandB ---
+    # TensorBoard e WandB Setup
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir, 'tensorboard_logs_tnt'))
 
     wandb_run_id = None
@@ -142,20 +144,19 @@ def main(args):
         id=wandb_run_id,     
         resume="allow"                                     
     )
-    # ----------------------------------------------
     
-    # 1. Dataloaders
+    # 1. Caricamento Dataloaders
     train_ae1_loader, val_ae1_loader, tag_loader, _ = get_dataloaders_tnt(
         args.data_path, args.bg_classes, args.img_size, args.batch_size, 0, args.max_samples
     )
     
-    # 2. Addestramento AE1 (Background)
+    # 2. Addestramento AE1 (Background Model)
     enc1 = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     dec1 = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     train_model(enc1, dec1, train_ae1_loader, val_ae1_loader, args, device, writer, "ae1_bkg")
     
-    # 3. Carica i pesi migliori e tagga
-    checkpoint1 = torch.load(os.path.join(args.save_dir, 'ae1_bkg_best.pth'))
+    # 3. Carica i pesi migliori di AE1 e genera le Pseudo-Anomalie
+    checkpoint1 = torch.load(os.path.join(args.save_dir, 'ae1_bkg_best.pth'), map_location=device, weights_only=False)
     enc1.load_state_dict(checkpoint1['encoder'])
     dec1.load_state_dict(checkpoint1['decoder'])
     
@@ -163,19 +164,19 @@ def main(args):
         enc1, dec1, tag_loader, device, args.threshold_percentile, args.batch_size
     )
     
-    # 4. Addestramento AE2 (Pseudo-Anomalie)
+    # 4. Addestramento AE2 (Pseudo-Anomaly Model)
     enc2 = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     dec2 = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     train_model(enc2, dec2, train_ae2_loader, val_ae2_loader, args, device, writer, "ae2_sig")
     
     writer.close()
     wandb.finish()
-    print("\nTraining workflow completato con successo!")
+    print("\nTraining workflow Tag N' Train completato con successo!")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1])
-    parser.add_argument('--epochs', type=int, default=40)
+    parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--latent_space_dim', type=int, default=16)

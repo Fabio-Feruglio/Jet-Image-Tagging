@@ -3,7 +3,6 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
@@ -14,7 +13,7 @@ from sklearn.manifold import TSNE
 from dataset.dataloader_tnt import get_dataloaders_tnt 
 from model.other_models_attempt.autoencoder import Encoder, Decoder
 
-# --- REINTEGRATO: Salvataggio Ricostruzioni Immagini ---
+# Salvataggio Ricostruzioni Immagini (FIXED per la matrice axes)
 def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir, model_name, num_per_class=3):
     img_dir = os.path.join(save_dir, 'reconstructions')
     os.makedirs(img_dir, exist_ok=True)
@@ -31,9 +30,8 @@ def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir
     if total_images == 0:
         return
 
-    fig, axes = plt.subplots(nrows=total_images, ncols=2, figsize=(8, 3 * total_images))
-    if total_images == 1:
-        axes = [axes]
+    # FIX BUG PLT: squeeze=False forza axes ad essere sempre una matrice 2D
+    fig, axes = plt.subplots(nrows=total_images, ncols=2, figsize=(8, 3 * total_images), squeeze=False)
         
     for i, idx in enumerate(selected_indices):
         label_type = "Background" if labels_np[idx] == 0 else "Anomaly"
@@ -52,9 +50,8 @@ def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir
     save_path = os.path.join(img_dir, f"reconstructions_comparison_{model_name}.png")
     plt.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
-# -------------------------------------------------------
 
-# --- REINTEGRATO: Proiezioni PCA e t-SNE ---
+# Proiezioni PCA e t-SNE
 def plot_latent_space(latent_vectors, true_labels, save_dir, model_name):
     print(f"Computing PCA and t-SNE per il modello {model_name}...")
     label_names = {0: 'Background', 1: 'Anomalies'}
@@ -79,9 +76,11 @@ def plot_latent_space(latent_vectors, true_labels, save_dir, model_name):
     plt.title(f't-SNE Latent Space - {model_name}')
     plt.savefig(os.path.join(save_dir, f'tsne_latent_{model_name}.png'), bbox_inches='tight')
     plt.close()
-# -------------------------------------------
 
 def evaluate_2d_anomaly(dataloader, enc1, dec1, enc2, dec2, device, save_dir):
+    # FIX: Creazione cartella anticipata per prevenire FileNotFoundError
+    os.makedirs(save_dir, exist_ok=True)
+    
     enc1.eval(); dec1.eval()
     enc2.eval(); dec2.eval()
     mse_fn = nn.MSELoss(reduction='none') 
@@ -93,20 +92,19 @@ def evaluate_2d_anomaly(dataloader, enc1, dec1, enc2, dec2, device, save_dir):
 
     print("\n=== Valutazione sull'Evaluation Set ===")
     with torch.no_grad():
-        for batch_x, batch_y in tqdm(dataloader):
+        for batch_x, batch_y in tqdm(dataloader, desc="Evaluating 2D Models"):
             batch_x = batch_x.to(device)
             
-            # Loss e Latent AE1 (Background)
+            # AE1 (Background Model)
             encoded1 = enc1(batch_x)
             rec1 = dec1(encoded1)
             l1 = mse_fn(rec1, batch_x).view(batch_x.size(0), -1).mean(dim=1)
             
-            # Loss e Latent AE2 (Pseudo-Segnale)
+            # AE2 (Pseudo-Anomaly Model)
             encoded2 = enc2(batch_x)
             rec2 = dec2(encoded2)
             l2 = mse_fn(rec2, batch_x).view(batch_x.size(0), -1).mean(dim=1)
             
-            # Salvataggio Immagini al primo batch utile
             if not saved_images:
                 if (batch_y == 0).any() and (batch_y == 1).any():
                     save_reconstruction_pairs_by_class(batch_x, rec1, batch_y, save_dir, "ae1_bkg")
@@ -126,13 +124,11 @@ def evaluate_2d_anomaly(dataloader, enc1, dec1, enc2, dec2, device, save_dir):
     latent_ae1 = np.array(latent_ae1_list)
     latent_ae2 = np.array(latent_ae2_list)
     
-    # Proiezioni degli Spazi Latenti (Reintegrate)
     plot_latent_space(latent_ae1, labels, save_dir, "ae1_bkg")
     plot_latent_space(latent_ae2, labels, save_dir, "ae2_sig")
     
-    # Calcolo Score Ibrido
+    # Score Ibrido (MSE_Bkg / MSE_Sig)
     hybrid_score = loss_bkg / (loss_sig + 1e-8)
-    os.makedirs(save_dir, exist_ok=True)
     
     # PLOT 1: Spazio Latente 2D delle Loss
     plt.figure(figsize=(8, 8))
@@ -170,12 +166,14 @@ def evaluate_2d_anomaly(dataloader, enc1, dec1, enc2, dec2, device, save_dir):
         plt.ylim([0.0, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.title('Receiver Operating Characteristic')
+        plt.title('Receiver Operating Characteristic (Hybrid Score)')
         plt.legend(loc="lower right")
         plt.savefig(os.path.join(save_dir, 'roc_hybrid.png'), bbox_inches='tight')
         plt.close()
         
-        print(f"\nFinal Hybrid AUC: {roc_auc:.4f}")
+        print(f"\n==========================================")
+        print(f" FINAL HYBRID AUC (TNT 2D): {roc_auc:.4f}")
+        print(f"==========================================")
 
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -188,11 +186,11 @@ def main(args):
     enc2 = Encoder(args.latent_space_dim).to(device)
     dec2 = Decoder(args.latent_space_dim).to(device)
     
-    ckpt1 = torch.load(os.path.join(args.model_dir, 'ae1_bkg_best.pth'), map_location=device)
+    ckpt1 = torch.load(os.path.join(args.model_dir, 'ae1_bkg_best.pth'), map_location=device, weights_only=False)
     enc1.load_state_dict(ckpt1['encoder'])
     dec1.load_state_dict(ckpt1['decoder'])
     
-    ckpt2 = torch.load(os.path.join(args.model_dir, 'ae2_sig_best.pth'), map_location=device)
+    ckpt2 = torch.load(os.path.join(args.model_dir, 'ae2_sig_best.pth'), map_location=device, weights_only=False)
     enc2.load_state_dict(ckpt2['encoder'])
     dec2.load_state_dict(ckpt2['decoder'])
 
@@ -200,7 +198,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_dir', type=str, required=True, help="Directory containing ae1_bkg_best.pth and ae2_sig_best.pth")
+    parser.add_argument('--model_dir', type=str, required=True)
     parser.add_argument('--data_path', type=str, default='./dataset.h5')
     parser.add_argument('--save_dir', type=str, default='./results_tnt')
     parser.add_argument('--max_samples', type=int, default=50000)
