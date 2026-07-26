@@ -6,7 +6,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import seaborn as sns
+import pandas as pd
 from sklearn.metrics import roc_curve, auc
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 from dataset.dataloader import get_dataloaders 
 from model.other_models_attempt.autoencoder import Encoder, Decoder
@@ -19,47 +22,47 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     
     anomaly_scores = []
     true_labels = []
+    latent_vectors = []
 
     print(f"\n--- Eval on set: {data_split.upper()} ---")
     with torch.no_grad():
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
-            # batch_y contains the true labels (0 for background, 1 for anomaly)
             
             # Forward pass
             encoded = encoder(batch_x)
             reconstructed = decoder(encoded)
 
             # Anomaly score
-            # shape [batch_size, channels, height, width]
             loss_per_pixel = mse_loss_fn(reconstructed, batch_x)
-            
-            # mean over channels, height, and width to get a single score per image
-            # shape [batch_size]
             loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1)
 
-            # Save the scores and true labels
+            # Save scores and true labels
             anomaly_scores.extend(loss_per_image.cpu().numpy())
             true_labels.extend(batch_y.numpy())
+            
+            # Save latent representations (appiattite per PCA/t-SNE)
+            latent_vectors.extend(encoded.view(encoded.size(0), -1).cpu().numpy())
 
     anomaly_scores = np.array(anomaly_scores)
     true_labels = np.array(true_labels)
+    latent_vectors = np.array(latent_vectors)
     
     mean_loss = np.mean(anomaly_scores)
     print(f"\nResults {data_split.upper()}:")
     print(f"Mean Reconstruction Loss: {mean_loss:.6f}")
 
+    # ---------------------------------------------------------
     # PLOT 1: Anomaly Score Distribution
+    # ---------------------------------------------------------
     plt.figure(figsize=(10, 6))
     
-    # Background (Label 0)
     sns.histplot(anomaly_scores[true_labels == 0], color='blue', label='Background (QCD/Light)', 
-                 kde=True, stat='density', alpha=0.5, bins=50)
+                 kde=True, stat='density', alpha=0.5, bins=50, binrange=(0, 1.5))
     
-    # Anomalies (Label 1)
     if np.sum(true_labels == 1) > 0:
         sns.histplot(anomaly_scores[true_labels == 1], color='red', label='Anomalies (New Physics)', 
-                     kde=True, stat='density', alpha=0.5, bins=50)
+                     kde=True, stat='density', alpha=0.5, bins=50, binrange=(0, 1.5))
         
     plt.xlabel('Reconstruction Error (Anomaly Score)')
     plt.ylabel('Density')
@@ -71,7 +74,9 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     plt.close()
     print(f"Distribution plot saved in: {dist_path}")
 
+    # ---------------------------------------------------------
     # PLOT 2: ROC Curve 
+    # ---------------------------------------------------------
     roc_auc = None
     if np.sum(true_labels == 1) > 0:
         fpr, tpr, thresholds = roc_curve(true_labels, anomaly_scores)
@@ -93,10 +98,54 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
         plt.close()
         print(f"ROC plot saved in: {roc_path}")
     else:
-        print(f"Skipping ROC curve for {data_split.upper()} (No anomalies present in validation set).")
+        print(f"Skipping ROC curve for {data_split.upper()} (No anomalies present).")
+
+    # ---------------------------------------------------------
+    # PLOT 3: Latent Space Projections (PCA & t-SNE)
+    # ---------------------------------------------------------
+    print(f"Computing PCA and t-SNE for latent space projection ({data_split.upper()})")
+    
+    label_names = {0: 'Background (QCD/Light)', 1: 'Anomalies (New Physics)'}
+    mapped_labels = [label_names[l] for l in true_labels]
+
+    # PCA 
+    pca = PCA(n_components=2)
+    latent_pca = pca.fit_transform(latent_vectors)
+    
+    plt.figure(figsize=(8, 8))
+    sns.scatterplot(x=latent_pca[:, 0], y=latent_pca[:, 1], hue=mapped_labels, 
+                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (New Physics)': 'red'}, 
+                    alpha=0.6)
+    plt.title(f'PCA Latent Space Projection - {data_split.capitalize()}')
+    plt.xlabel('Principal Component 1')
+    plt.ylabel('Principal Component 2')
+    plt.legend()
+    
+    pca_path = os.path.join(save_dir, f'pca_latent_{data_split}_{model_name}.png')
+    plt.savefig(pca_path, bbox_inches='tight')
+    plt.close()
+    print(f"PCA plot saved in: {pca_path}")
+
+    # t-SNE 
+    # Note: t-SNE can be slow for large datasets; consider subsampling if needed
+    tsne = TSNE(n_components=2, random_state=42)
+    latent_tsne = tsne.fit_transform(latent_vectors)
+    
+    plt.figure(figsize=(8, 8))
+    sns.scatterplot(x=latent_tsne[:, 0], y=latent_tsne[:, 1], hue=mapped_labels, 
+                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (New Physics)': 'red'}, 
+                    alpha=0.6)
+    plt.title(f't-SNE Latent Space Projection - {data_split.capitalize()}')
+    plt.xlabel('t-SNE Dimension 1')
+    plt.ylabel('t-SNE Dimension 2')
+    plt.legend()
+    
+    tsne_path = os.path.join(save_dir, f'tsne_latent_{data_split}_{model_name}.png')
+    plt.savefig(tsne_path, bbox_inches='tight')
+    plt.close()
+    print(f"t-SNE plot saved in: {tsne_path}")
 
     return mean_loss, roc_auc
-
 
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
