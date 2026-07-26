@@ -14,6 +14,47 @@ from sklearn.manifold import TSNE
 from dataset.dataloader import get_dataloaders 
 from model.other_models_attempt.autoencoder import Encoder, Decoder
 
+# --- FUNZIONE AGGIUNTA PER IL SALVATAGGIO DELLE RICOSTRUZIONI ---
+def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir, data_split, model_name, num_per_class=3):
+    img_dir = os.path.join(save_dir, 'reconstructions')
+    os.makedirs(img_dir, exist_ok=True)
+    
+    orig_np = original.cpu().detach().numpy()
+    recon_np = reconstructed.cpu().detach().numpy()
+    labels_np = labels.cpu().detach().numpy()
+    
+    bg_indices = np.where(labels_np == 0)[0][:num_per_class]
+    anom_indices = np.where(labels_np == 1)[0][:num_per_class]
+    selected_indices = np.concatenate([bg_indices, anom_indices])
+    total_images = len(selected_indices)
+    
+    if total_images == 0:
+        print(f"Attenzione: Nessun dato trovato per salvare le ricostruzioni su {data_split}.")
+        return
+
+    fig, axes = plt.subplots(nrows=total_images, ncols=2, figsize=(8, 3 * total_images))
+    if total_images == 1:
+        axes = [axes]
+        
+    for i, idx in enumerate(selected_indices):
+        label_type = "Background" if labels_np[idx] == 0 else "Anomaly"
+        img_in = orig_np[idx].squeeze()
+        img_out = recon_np[idx].squeeze()
+
+        axes[i][0].imshow(img_in, cmap='gray', vmin=0.0, vmax=1.0)
+        axes[i][0].set_title(f"Input - {label_type}")
+        axes[i][0].axis('off')
+        
+        axes[i][1].imshow(img_out, cmap='gray', vmin=0.0, vmax=1.0)
+        axes[i][1].set_title(f"{model_name} Recon - {label_type}")
+        axes[i][1].axis('off')
+        
+    plt.tight_layout()
+    save_path = os.path.join(img_dir, f"reconstructions_comparison_{model_name}_{data_split}.png")
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
+# ----------------------------------------------------------------
+
 def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split):
     encoder.eval()
     decoder.eval()
@@ -23,6 +64,9 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     anomaly_scores = []
     true_labels = []
     latent_vectors = []
+    
+    # Flag per salvare le immagini una sola volta per split
+    saved_images = False
 
     print(f"\n--- Eval on set: {data_split.upper()} ---")
     with torch.no_grad():
@@ -33,7 +77,19 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
             encoded = encoder(batch_x)
             reconstructed = decoder(encoded)
 
-            # Anomaly score
+            # --- LOGICA DI SALVATAGGIO IMMAGINI ---
+            if not saved_images:
+                has_bg = (batch_y == 0).any()
+                has_anom = (batch_y == 1).any()
+                if has_bg and has_anom:
+                    save_reconstruction_pairs_by_class(
+                        original=batch_x, reconstructed=reconstructed, labels=batch_y, 
+                        save_dir=save_dir, data_split=data_split, model_name=model_name, num_per_class=3
+                    )
+                    saved_images = True
+            # --------------------------------------
+
+            # Anomaly score (MSE Loss)
             loss_per_pixel = mse_loss_fn(reconstructed, batch_x)
             loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1)
 
