@@ -70,7 +70,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.ylabel('True Label')
         plt.title(f'Normalized Confusion Matrix - {data_split.capitalize()}')
         
-        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
+        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.pdf')
         plt.savefig(cm_path, bbox_inches='tight')
         plt.close()
         print(f"Confusion Matrix saved in: {cm_path}")
@@ -96,7 +96,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}')
         plt.legend(loc="lower right")
         
-        roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
+        roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.pdf')
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
         print(f"ROC plot saved in: {roc_path}")
