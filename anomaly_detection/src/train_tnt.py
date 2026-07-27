@@ -18,7 +18,7 @@ def apply_pepper_noise(images, prob=0.1):
 def train_model(encoder, decoder, train_loader, val_loader, args, device, writer, model_name="ae"):
     loss_fn = torch.nn.MSELoss()
     
-    # --- RIPRISTINATO ADAM ---
+    # Ottimizzatore ADAM ripristinato
     optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), 
                                  lr=args.lr, weight_decay=args.weight_decay)
     
@@ -105,7 +105,7 @@ def extract_pseudo_anomalies(encoder, decoder, tag_loader, device, percentile, b
     
     mask = all_losses > threshold
     
-    # FIX BUG INDEXING: conversione esplicita della maschera numpy in tensore PyTorch
+    # Conversione esplicita della maschera numpy in tensore PyTorch
     torch_mask = torch.from_numpy(mask)
     pseudo_inputs = torch.cat(all_inputs)[torch_mask]
     pseudo_labels = np.array(all_labels)[mask]
@@ -153,10 +153,18 @@ def main(args):
     # 2. Addestramento AE1 (Background Model)
     enc1 = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     dec1 = Decoder(latent_space_dim=args.latent_space_dim).to(device)
-    train_model(enc1, dec1, train_ae1_loader, val_ae1_loader, args, device, writer, "ae1_bkg")
+    
+    # --- SMART RESUME: Controlla se AE1 esiste già per saltare il training ---
+    ae1_best_path = os.path.join(args.save_dir, 'ae1_bkg_best.pth')
+    if os.path.exists(ae1_best_path):
+        print(f"\n[!] Trovati pesi esistenti per AE1 in: {ae1_best_path}")
+        print("[!] Salto l'addestramento di AE1 per risparmiare tempo!")
+    else:
+        train_model(enc1, dec1, train_ae1_loader, val_ae1_loader, args, device, writer, "ae1_bkg")
+    # -------------------------------------------------------------------------
     
     # 3. Carica i pesi migliori di AE1 e genera le Pseudo-Anomalie
-    checkpoint1 = torch.load(os.path.join(args.save_dir, 'ae1_bkg_best.pth'), map_location=device, weights_only=False)
+    checkpoint1 = torch.load(ae1_best_path, map_location=device, weights_only=False)
     enc1.load_state_dict(checkpoint1['encoder'])
     dec1.load_state_dict(checkpoint1['decoder'])
     
