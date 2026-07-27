@@ -1,11 +1,9 @@
 import json
 import os
-
 import h5py 
 import torch
 import numpy as np
 from tqdm import tqdm
-
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
@@ -17,15 +15,9 @@ class JetImageAnomalyDataset(Dataset):
 
         with h5py.File(self.filepath, "r") as f:
             labels_obj = f["labels"]
-            if not isinstance(labels_obj, h5py.Dataset):
-                raise TypeError("Expected 'labels' to be an HDF5 dataset")
             total_length = int(labels_obj.shape[0])
         
-        if indices is None:
-            self.indices = np.arange(total_length)
-        else:
-            self.indices = indices
-
+        self.indices = np.arange(total_length) if indices is None else indices
         self.transform = transform
         self.bg_classes = bg_classes
 
@@ -34,22 +26,18 @@ class JetImageAnomalyDataset(Dataset):
 
     def __getitem__(self, idx):
         actual_idx = self.indices[idx]
-        
         if self.h5_file is None:
             self.h5_file = h5py.File(self.filepath, 'r')
             
         image_np = self.h5_file['images'][actual_idx] 
         label_np = self.h5_file['labels'][actual_idx] 
-
-        if self.bg_classes is not None:
-            label_np = 0 if label_np in self.bg_classes else 1
+        label_np = 0 if label_np in self.bg_classes else 1
         
         image_tensor = torch.from_numpy(image_np).to(dtype=torch.float32)
         label_tensor = torch.as_tensor(label_np, dtype=torch.long)
 
         if image_tensor.ndim == 2:
             image_tensor = image_tensor.unsqueeze(0)
-
         if self.transform:
             image_tensor = self.transform(image_tensor)
             
@@ -57,23 +45,16 @@ class JetImageAnomalyDataset(Dataset):
     
     def __del__(self):
         if hasattr(self, 'h5_file') and self.h5_file is not None:
-            try:
-                self.h5_file.close()
-            except Exception:
-                pass
-
+            try: self.h5_file.close()
+            except: pass
 
 def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
     if os.path.exists(cache_file):
-        print(f"Loading cached mean and std from {cache_file}...")
         with open(cache_file, 'r') as f:
             stats = json.load(f)
         return stats['mean'], stats['std']
     
-    channels_sum = 0.0
-    channels_sqrd_sum = 0.0
-    num_pixels = 0
-    
+    channels_sum = channels_sqrd_sum = num_pixels = 0.0
     with torch.no_grad():
         for images, _ in tqdm(dataloader, desc="Calculating dataset stats"):
             channels_sum += images.sum()
@@ -81,78 +62,80 @@ def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
             num_pixels += images.numel()
             
     mean = channels_sum / num_pixels
-    variance = (channels_sqrd_sum / num_pixels) - (mean ** 2)
-    std = torch.sqrt(variance)
-
+    std = torch.sqrt((channels_sqrd_sum / num_pixels) - (mean ** 2))
     with open(cache_file, 'w') as f:
         json.dump({'mean': mean.item(), 'std': std.item()}, f)
-    
     return mean.item(), std.item()
 
-
-def get_dataloaders_tnt(data_filepath="./dataset.h5", bg_classes=[0, 1], img_size=128, batch_size=64, num_workers=0, max_samples=50000):
+def get_dataloaders_tnt(data_filepath, bg_classes=[0, 1], img_size=128, batch_size=64, num_workers=0, 
+                        num_train_samples=30000, threshold_percentile=90.0):
+    
     with h5py.File(data_filepath, "r") as f:
         labels = np.asarray(f["labels"][:])
 
     all_indices = np.arange(labels.shape[0])
     bg_mask = np.isin(labels, bg_classes)
-    anomaly_mask = ~bg_mask
-
-    bg_indices = all_indices[bg_mask]
-    anomaly_indices = all_indices[anomaly_mask]
     
-    bg_labels = labels[bg_mask]
-    anomaly_labels = labels[anomaly_mask]
+    bg_indices = all_indices[bg_mask]
+    anomaly_indices = all_indices[~bg_mask]
+    
+    np.random.seed(42)
+    np.random.shuffle(bg_indices)
+    np.random.shuffle(anomaly_indices)
 
-    if max_samples is not None and max_samples < len(bg_indices):
-        bg_indices, _, bg_labels, _ = train_test_split(
-            bg_indices, bg_labels, train_size=max_samples, random_state=42, stratify=bg_labels
-        )
+    # 1. Calcoli Matematici Precisi per avere Dataset Uguali
+    ae1_size = num_train_samples
+    
+    fraction_kept = (100.0 - threshold_percentile) / 100.0
+    tagging_total_size = int(num_train_samples / fraction_kept)
+    tagging_half = tagging_total_size // 2
+    
+    eval_half = 10000 # 20.000 totali per l'eval (bastano e avanzano)
 
-    # 1. Divisione Background: 60% Train+Val AE1, 20% Tagging, 20% Eval
-    bg_train_val, bg_tag_eval, labels_train_val, _ = train_test_split(
-        bg_indices, bg_labels, test_size=0.40, random_state=42, stratify=bg_labels
-    )
-    bg_train, bg_val = train_test_split(bg_train_val, test_size=1/6, random_state=42)
-    bg_tag, bg_eval = train_test_split(bg_tag_eval, test_size=0.50, random_state=42)
+    # Verifica sicurezza sui dati disponibili
+    if (ae1_size + tagging_half + eval_half) > len(bg_indices):
+        raise ValueError("Non hai abbastanza background nel .h5 per questa configurazione!")
+    if (tagging_half + eval_half) > len(anomaly_indices):
+        raise ValueError("Non hai abbastanza anomalie nel .h5 per questa configurazione!")
 
-    # 2. Campionamento delle Anomalie (FIX: Pareggiamo il numero col background)
-    num_anom_needed = len(bg_tag_eval)
-    num_anom_needed = min(num_anom_needed, len(anomaly_indices))
+    # 2. Affettamento (Slicing) Disgiunto per evitare Data Leakage
+    idx_bkg = 0
+    ae1_bg_idx = bg_indices[idx_bkg : idx_bkg + ae1_size]
+    idx_bkg += ae1_size
+    tagging_bg_idx = bg_indices[idx_bkg : idx_bkg + tagging_half]
+    idx_bkg += tagging_half
+    eval_bg_idx = bg_indices[idx_bkg : idx_bkg + eval_half]
 
-    sampled_anomaly_idx, _, sampled_anomaly_labels, _ = train_test_split(
-        anomaly_indices, anomaly_labels,
-        train_size=num_anom_needed,
-        random_state=42,
-        stratify=anomaly_labels
-    )
+    idx_anom = 0
+    tagging_anom_idx = anomaly_indices[idx_anom : idx_anom + tagging_half]
+    idx_anom += tagging_half
+    eval_anom_idx = anomaly_indices[idx_anom : idx_anom + eval_half]
 
-    # Dividiamo le anomalie campionate 50% al Tagging e 50% all'Eval
-    anom_tag, anom_eval = train_test_split(
-        sampled_anomaly_idx, test_size=0.50, random_state=42, stratify=sampled_anomaly_labels
-    )
-
-    # Unione per i set misti
-    tag_idx = np.concatenate([bg_tag, anom_tag])
-    eval_idx = np.concatenate([bg_eval, anom_eval])
+    # Mix and Shuffle
+    tag_idx = np.concatenate([tagging_bg_idx, tagging_anom_idx])
+    eval_idx = np.concatenate([eval_bg_idx, eval_anom_idx])
     np.random.shuffle(tag_idx)
     np.random.shuffle(eval_idx)
 
-    print(f"\n--- Splitting Dataset TNT ---")
-    print(f"AE1 Train (solo BG): {len(bg_train)} | Val (solo BG): {len(bg_val)}")
-    print(f"Tagging Set (misto): {len(tag_idx)} | Eval Set (misto): {len(eval_idx)}")
+    # Split interno 85/15 per AE1
+    ae1_train, ae1_val = train_test_split(ae1_bg_idx, test_size=0.15, random_state=42)
 
-    raw_train_dataset = JetImageAnomalyDataset(dataset_filepath=data_filepath, indices=bg_train, bg_classes=bg_classes)
-    stat_loader = DataLoader(raw_train_dataset, batch_size=512, shuffle=False)
+    print(f"\n--- Splitting Dataset TNT Disaccoppiato ---")
+    print(f"AE1 Train+Val: {len(ae1_train) + len(ae1_val)} campioni (100% BKG)")
+    print(f"Tagging Set: {len(tag_idx)} campioni (50/50 BKG-Anom)")
+    print(f"-> Estraendo il top {100-threshold_percentile}% AE2 otterrà esattamente ~{int(len(tag_idx)*fraction_kept)} campioni!")
+    print(f"Eval Set: {len(eval_idx)} campioni (50/50 BKG-Anom)")
+
+    # Transforms
+    stat_loader = DataLoader(JetImageAnomalyDataset(data_filepath, indices=ae1_train, bg_classes=bg_classes), batch_size=512)
     calc_mean, calc_std = get_mean_and_std(stat_loader)
-
     transform = transforms.Compose([
         transforms.Resize((img_size, img_size), antialias=True),
         transforms.Normalize(mean=[calc_mean], std=[calc_std]),
     ])
 
-    ds_train = JetImageAnomalyDataset(data_filepath, transform=transform, indices=bg_train, bg_classes=bg_classes)
-    ds_val = JetImageAnomalyDataset(data_filepath, transform=transform, indices=bg_val, bg_classes=bg_classes)
+    ds_train = JetImageAnomalyDataset(data_filepath, transform=transform, indices=ae1_train, bg_classes=bg_classes)
+    ds_val = JetImageAnomalyDataset(data_filepath, transform=transform, indices=ae1_val, bg_classes=bg_classes)
     ds_tag = JetImageAnomalyDataset(data_filepath, transform=transform, indices=tag_idx, bg_classes=bg_classes)
     ds_eval = JetImageAnomalyDataset(data_filepath, transform=transform, indices=eval_idx, bg_classes=bg_classes)
 
