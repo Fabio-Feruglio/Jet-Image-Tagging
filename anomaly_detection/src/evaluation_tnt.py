@@ -92,20 +92,33 @@ def evaluate_2d_anomaly(dataloader, enc1, dec1, enc2, dec2, device, save_dir):
     if np.sum(labels == 1) > 0:
         fpr, tpr, _ = roc_curve(labels, hybrid_score)
         roc_auc = auc(fpr, tpr)
+        
+        # Calcolo della Background Rejection
+        def get_bkg_rejection(tpr_target, fpr, tpr):
+            idx = np.argmin(np.abs(tpr - tpr_target))
+            return 1.0 / (fpr[idx] + 1e-8) if fpr[idx] > 0 else float('inf')
+
+        rej_30 = get_bkg_rejection(0.30, fpr, tpr)
+        rej_50 = get_bkg_rejection(0.50, fpr, tpr)
+
         plt.figure(figsize=(8, 8))
         plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'Hybrid Score ROC (AUC = {roc_auc:.3f})'); plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim([0.0, 1.0]); plt.ylim([0.0, 1.05]); plt.xlabel('False Positive Rate'); plt.ylabel('True Positive Rate'); plt.legend(loc="lower right")
         plt.title('Receiver Operating Characteristic'); plt.savefig(os.path.join(save_dir, 'roc_hybrid.png'), bbox_inches='tight'); plt.close()
+        
         print(f"\n==========================================")
-        print(f" FINAL HYBRID AUC (TNT 2D): {roc_auc:.4f}")
+        print(f" FINAL HYBRID AUC (TNT 2D)      : {roc_auc:.4f}")
+        print(f" Bkg Rejection @ 30% Sig Eff    : {rej_30:.2f}")
+        print(f" Bkg Rejection @ 50% Sig Eff    : {rej_50:.2f}")
         print(f"==========================================")
 
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     _, _, _, eval_loader = get_dataloaders_tnt(args.data_path, args.bg_classes, args.img_size, args.batch_size, 0, args.num_train_samples, 90.0)
     
-    enc1, dec1 = Encoder(args.latent_space_dim).to(device), Decoder(args.latent_space_dim).to(device)
-    enc2, dec2 = Encoder(args.latent_space_dim).to(device), Decoder(args.latent_space_dim).to(device)
+    # Inizializziamo i due modelli con i rispettivi parametri
+    enc1, dec1 = Encoder(args.latent_dim_ae1).to(device), Decoder(args.latent_dim_ae1).to(device)
+    enc2, dec2 = Encoder(args.latent_dim_ae2).to(device), Decoder(args.latent_dim_ae2).to(device)
     
     ckpt1 = torch.load(os.path.join(args.model_dir_ae1, 'ae1_bkg_best.pth'), map_location=device, weights_only=False)
     enc1.load_state_dict(ckpt1['encoder']); dec1.load_state_dict(ckpt1['decoder'])
@@ -125,5 +138,9 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1])
-    parser.add_argument('--latent_space_dim', type=int, default=16)
+    
+    # Parametri sdoppiati anche in evaluation
+    parser.add_argument('--latent_dim_ae1', type=int, default=16)
+    parser.add_argument('--latent_dim_ae2', type=int, default=32)
+    
     main(parser.parse_args())
