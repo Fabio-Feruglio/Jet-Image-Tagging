@@ -1,8 +1,6 @@
-# Jet Image Classification with an Ensemble Model
+# Jet Image Classification
 
-This folder contains the supervised classification part of the project: a 5-class jet image classifier built around an ensemble of two CNN backbones, **ResNet50** and **InceptionV4**.
-
-The goal is to classify jet images into the following classes:
+This folder contains the supervised jet-image classification workflow for the project. The target is a 5-class jet tagging task with the following labels:
 
 - gluon
 - light quark
@@ -10,26 +8,18 @@ The goal is to classify jet images into the following classes:
 - W boson
 - Z boson
 
-The code supports training individual backbones, training the ensemble, hyperparameter tuning, and model evaluation with classification metrics and plots.
+The codebase supports three related workflows:
 
-## What is included
+- train a single backbone classifier with ResNet50 or InceptionV3
+- train an ensemble classifier that combines both backbones
+- tune and evaluate each setup with Optuna, TensorBoard, and Weights & Biases support
 
-- PyTorch dataset and dataloader utilities for jet images stored in HDF5 format
-- Data normalization and train/validation/test splitting with stratification
-- ResNet50 and InceptionV4 models
-- An ensemble model that concatenates the two backbone feature representations and learns a final classifier head
-- Training scripts with checkpointing, early stopping, TensorBoard logging, and Weights & Biases logging
-- Evaluation script with accuracy, classification report, confusion matrix, and multiclass ROC curves
-- Optuna-based hyperparameter tuning utilities
-- Jupyter notebooks for dataset inspection, downloading, tuning, and training
-
-## Repository structure
+## Directory Overview
 
 ```text
 classification/
-├── README.md
-├── classifier_train_launcher.ipynb
-├── classifier_tuner.ipynb
+├── README_classification.md
+├── classifier_launcher.ipynb
 ├── dataset_download.ipynb
 ├── dataset_visual.ipynb
 └── src/
@@ -37,42 +27,93 @@ classification/
     ├── train.py
     ├── train_ensemble.py
     ├── tune.py
-    ├── tune_old.py
+    ├── tune_ensemble.py
     ├── dataset/
     │   ├── __init__.py
-    │   ├── data_augmentation.py
     │   ├── dataloader.py
     │   └── dataset_preprocessing.py
     └── model/
         ├── __init__.py
         ├── ensemble.py
-        ├── inception.py
+        ├── inceptionv3.py
+        ├── mini_ensemble.py
         └── resnet.py
 ```
 
-## Data format
+## Workflow
 
-The dataloader expects an HDF5 file containing at least two datasets:
+### 1. Prepare the dataset
 
-- `images`: jet images
-- `labels`: class labels
+Use `dataset_download.ipynb` to create or download the HDF5 dataset, and `dataset_visual.ipynb` to inspect the resulting jet images and label distribution.
 
-The loader splits the data into training, validation, and test sets using a stratified split. It also computes the dataset mean and standard deviation on the training split and uses them for normalization.
+The preprocessing script in `src/dataset/dataset_preprocessing.py` writes an HDF5 file with at least these datasets:
 
-## Model overview
+- `images`: jet images with shape `[N, 1, H, W]`
+- `labels`: integer class labels in `[0, 4]`
 
-### ResNet50 and InceptionV4
+The dataloader in `src/dataset/dataloader.py` then performs:
 
-The backbone models are standard CNN classifiers adapted to the 5-class jet tagging task.
+- stratified train/validation/test splitting
+- mean and standard deviation computation on the training split
+- resizing and normalization
 
-### Ensemble model
+### 2. Train a single backbone
 
-The ensemble is defined in `src/model/ensemble.py` and works as follows:
+Use `src/train.py` to train either:
 
-1. Load the two backbones.
-2. Remove their final classification layers.
-3. Extract feature vectors from both networks.
-4. Concatenate the features.
-5. Pass the merged representation through a small fully connected head.
+- ResNet50
+- InceptionV3
 
-This lets the model combine complementary information from the two architectures.
+The script supports checkpointing, early stopping, TensorBoard logging, and WandB logging. Set `--mini` to use the smaller backbone variants defined in `src/model/mini_ensemble.py`.
+
+### 3. Train the ensemble
+
+Use `src/train_ensemble.py` to train the combined classifier built in `src/model/ensemble.py`.
+
+The ensemble workflow is:
+
+1. Load the ResNet and Inception feature extractors.
+2. Concatenate their feature representations.
+3. Train the final fully connected head first.
+4. Optionally unfreeze the backbones for fine-tuning after warmup.
+
+### 4. Tune hyperparameters
+
+Use `src/tune.py` for single-backbone tuning and `src/tune_ensemble.py` for ensemble tuning.
+
+Both scripts use Optuna and store the study state in SQLite so runs can be resumed.
+
+### 5. Evaluate trained weights
+
+Use `src/evaluation.py` to evaluate a saved checkpoint on validation and test splits. The script reports:
+
+- loss and accuracy
+- classification report
+- confusion matrix
+- multiclass ROC curves and AUC values
+
+It also saves the plots to the selected output directory.
+
+## Typical Run Order
+
+1. Generate or download the HDF5 dataset.
+2. Inspect the dataset visually.
+3. Train a single backbone or the ensemble.
+4. Tune hyperparameters if needed.
+5. Evaluate the best checkpoint and save the plots.
+
+## Common Output Files
+
+Depending on the script you run, outputs are usually written to:
+
+- model checkpoints in a `checkpoints/` directory
+- TensorBoard logs inside `tensorboard_logs/`
+- WandB run metadata
+- Optuna SQLite studies and best-parameter text files
+- evaluation plots such as confusion matrices and ROC curves
+
+## Notes
+
+- The default data file path in the scripts is a local HDF5 file such as `./dataset.h5` or a dataset path you provide explicitly.
+- Most scripts expose `--img_size`, `--batch_size`, `--max_samples`, and `--mini` to make experiments cheaper during iteration.
+- If you are running the full pipeline, keep the data preprocessing output, training checkpoints, and evaluation results in separate directories to avoid mixing generated artifacts with source files.
