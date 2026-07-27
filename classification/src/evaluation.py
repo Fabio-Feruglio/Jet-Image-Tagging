@@ -23,7 +23,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         predictions = [] # Network output
         true = [] # True labels
 
-        print(f"\n--- Eval on test set: {data_split.upper()} ---")
+        print(f"\n Eval on test set: {data_split.upper()}")
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
@@ -55,22 +55,29 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         print("\nClassification Report:")
         print(classification_report(true_labels, pred_labels))
 
-        # Confusion matrix
-        cm = confusion_matrix(true_labels, pred_labels)
+        # ---------------------------------------------------------
+        # Normalized Confusion matrix
+        # ---------------------------------------------------------
+        cm = confusion_matrix(true_labels, pred_labels, normalize='true') 
+        
         class_labels = class_names
         plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot = True, fmt = 'd', cmap = 'Blues', 
-                    xticklabels = class_labels, yticklabels = class_labels)
+        
+        sns.heatmap(cm, annot=True, fmt='.2f', cmap='Blues', vmin=0, vmax=1,
+                    xticklabels=class_labels, yticklabels=class_labels)
+        
         plt.xlabel('Predicted Label')
         plt.ylabel('True Label')
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}')
+        plt.title(f'Normalized Confusion Matrix - {data_split.capitalize()}')
         
         cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
         plt.savefig(cm_path, bbox_inches='tight')
         plt.close()
         print(f"Confusion Matrix saved in: {cm_path}")
 
+        # ---------------------------------------------------------
         # Roc curve and AUC
+        # ---------------------------------------------------------
         # One-hot encode the true labels for ROC computation
         true_labels_bin = np.asarray(label_binarize(true_labels, classes=list(range(num_classes)), sparse_output=False))
         
