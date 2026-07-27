@@ -17,7 +17,11 @@ class JetImageAnomalyDataset(Dataset):
             labels_obj = f["labels"]
             total_length = int(labels_obj.shape[0])
         
-        self.indices = np.arange(total_length) if indices is None else indices
+        if indices is None:
+            self.indices = np.arange(total_length)
+        else:
+            self.indices = indices
+            
         self.transform = transform
         self.bg_classes = bg_classes
 
@@ -26,18 +30,22 @@ class JetImageAnomalyDataset(Dataset):
 
     def __getitem__(self, idx):
         actual_idx = self.indices[idx]
+        
         if self.h5_file is None:
             self.h5_file = h5py.File(self.filepath, 'r')
             
         image_np = self.h5_file['images'][actual_idx] 
         label_np = self.h5_file['labels'][actual_idx] 
-        label_np = 0 if label_np in self.bg_classes else 1
+        
+        if self.bg_classes is not None:
+            label_np = 0 if label_np in self.bg_classes else 1
         
         image_tensor = torch.from_numpy(image_np).to(dtype=torch.float32)
         label_tensor = torch.as_tensor(label_np, dtype=torch.long)
 
         if image_tensor.ndim == 2:
             image_tensor = image_tensor.unsqueeze(0)
+            
         if self.transform:
             image_tensor = self.transform(image_tensor)
             
@@ -45,8 +53,10 @@ class JetImageAnomalyDataset(Dataset):
     
     def __del__(self):
         if hasattr(self, 'h5_file') and self.h5_file is not None:
-            try: self.h5_file.close()
-            except: pass
+            try: 
+                self.h5_file.close()
+            except Exception: 
+                pass
 
 def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
     if os.path.exists(cache_file):
@@ -54,7 +64,10 @@ def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
             stats = json.load(f)
         return stats['mean'], stats['std']
     
-    channels_sum = channels_sqrd_sum = num_pixels = 0.0
+    channels_sum = 0.0
+    channels_sqrd_sum = 0.0
+    num_pixels = 0.0
+    
     with torch.no_grad():
         for images, _ in tqdm(dataloader, desc="Calculating dataset stats"):
             channels_sum += images.sum()
@@ -63,8 +76,10 @@ def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
             
     mean = channels_sum / num_pixels
     std = torch.sqrt((channels_sqrd_sum / num_pixels) - (mean ** 2))
+    
     with open(cache_file, 'w') as f:
         json.dump({'mean': mean.item(), 'std': std.item()}, f)
+        
     return mean.item(), std.item()
 
 def get_dataloaders_tnt(data_filepath, bg_classes=[0, 1], img_size=128, batch_size=64, num_workers=0, 
@@ -79,26 +94,34 @@ def get_dataloaders_tnt(data_filepath, bg_classes=[0, 1], img_size=128, batch_si
     bg_indices = all_indices[bg_mask]
     anomaly_indices = all_indices[~bg_mask]
     
+    # Shuffle iniziale per garantire la casualità
     np.random.seed(42)
     np.random.shuffle(bg_indices)
     np.random.shuffle(anomaly_indices)
 
-    # 1. Calcoli Matematici Precisi per avere Dataset Uguali
+    # --- 1. CALCOLI MATEMATICI SICURI E DINAMICI ---
     ae1_size = num_train_samples
     
-    fraction_kept = (100.0 - threshold_percentile) / 100.0
-    tagging_total_size = int(num_train_samples / fraction_kept)
-    tagging_half = tagging_total_size // 2
+    if ae1_size >= len(bg_indices):
+        raise ValueError(f"Errore: Hai chiesto {ae1_size} campioni per AE1, ma hai solo {len(bg_indices)} campioni di background totali.")
+
+    bg_remaining = len(bg_indices) - ae1_size
+    anom_remaining = len(anomaly_indices)
+
+    # Riserviamo campioni per l'Evaluation Set (Max 5000 per classe, o il 10% di quello che resta)
+    eval_half = min(5000, bg_remaining // 10, anom_remaining // 10)
     
-    eval_half = 10000 # 20.000 totali per l'eval (bastano e avanzano)
+    if eval_half == 0:
+         raise ValueError("Non ci sono abbastanza dati per creare un set di valutazione!")
 
-    # Verifica sicurezza sui dati disponibili
-    if (ae1_size + tagging_half + eval_half) > len(bg_indices):
-        raise ValueError("Non hai abbastanza background nel .h5 per questa configurazione!")
-    if (tagging_half + eval_half) > len(anomaly_indices):
-        raise ValueError("Non hai abbastanza anomalie nel .h5 per questa configurazione!")
+    # Calcoliamo quanto servirebbe idealmente per il Tagging Set
+    fraction_kept = (100.0 - threshold_percentile) / 100.0
+    ideal_tagging_half = int((num_train_samples / fraction_kept) / 2)
+    
+    # Prendiamo il numero ideale, MA limitato da quanti dati abbiamo REALMENTE a disposizione
+    tagging_half = min(ideal_tagging_half, bg_remaining - eval_half, anom_remaining - eval_half)
 
-    # 2. Affettamento (Slicing) Disgiunto per evitare Data Leakage
+    # --- 2. AFFETTAMENTO (SLICING) DISGIUNTO ---
     idx_bkg = 0
     ae1_bg_idx = bg_indices[idx_bkg : idx_bkg + ae1_size]
     idx_bkg += ae1_size
@@ -111,7 +134,7 @@ def get_dataloaders_tnt(data_filepath, bg_classes=[0, 1], img_size=128, batch_si
     idx_anom += tagging_half
     eval_anom_idx = anomaly_indices[idx_anom : idx_anom + eval_half]
 
-    # Mix and Shuffle
+    # Mix and Shuffle per i set misti
     tag_idx = np.concatenate([tagging_bg_idx, tagging_anom_idx])
     eval_idx = np.concatenate([eval_bg_idx, eval_anom_idx])
     np.random.shuffle(tag_idx)
@@ -121,10 +144,11 @@ def get_dataloaders_tnt(data_filepath, bg_classes=[0, 1], img_size=128, batch_si
     ae1_train, ae1_val = train_test_split(ae1_bg_idx, test_size=0.15, random_state=42)
 
     print(f"\n--- Splitting Dataset TNT Disaccoppiato ---")
-    print(f"AE1 Train+Val: {len(ae1_train) + len(ae1_val)} campioni (100% BKG)")
-    print(f"Tagging Set: {len(tag_idx)} campioni (50/50 BKG-Anom)")
-    print(f"-> Estraendo il top {100-threshold_percentile}% AE2 otterrà esattamente ~{int(len(tag_idx)*fraction_kept)} campioni!")
-    print(f"Eval Set: {len(eval_idx)} campioni (50/50 BKG-Anom)")
+    print(f"AE1 Train+Val : {len(ae1_train) + len(ae1_val)} campioni (100% BKG)")
+    print(f"Tagging Set   : {len(tag_idx)} campioni (50/50 BKG-Anom)")
+    print(f"-> Con un taglio al {threshold_percentile}°, AE2 otterrà esattamente {int(len(tag_idx)*fraction_kept)} campioni!")
+    print(f"Eval Set      : {len(eval_idx)} campioni (50/50 BKG-Anom)")
+    print(f"-------------------------------------------")
 
     # Transforms
     stat_loader = DataLoader(JetImageAnomalyDataset(data_filepath, indices=ae1_train, bg_classes=bg_classes), batch_size=512)
@@ -140,7 +164,11 @@ def get_dataloaders_tnt(data_filepath, bg_classes=[0, 1], img_size=128, batch_si
     ds_eval = JetImageAnomalyDataset(data_filepath, transform=transform, indices=eval_idx, bg_classes=bg_classes)
 
     pin_mem = torch.cuda.is_available()
-    loaders = [DataLoader(ds, batch_size=batch_size, shuffle=(i==0), num_workers=num_workers, pin_memory=pin_mem) 
-               for i, ds in enumerate([ds_train, ds_val, ds_tag, ds_eval])]
+    loaders = [
+        DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_mem),
+        DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_mem),
+        DataLoader(ds_tag, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_mem),
+        DataLoader(ds_eval, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_mem)
+    ]
     
     return loaders[0], loaders[1], loaders[2], loaders[3]
