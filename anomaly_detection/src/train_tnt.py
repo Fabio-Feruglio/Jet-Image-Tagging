@@ -27,17 +27,15 @@ def train_model(encoder, decoder, train_loader, val_loader, args, device, writer
 
     latest_path = os.path.join(save_dir, f'{model_name}_latest.pth')
     
-    # --- LOGICA DI AUTO-RESUME E SMART SKIP ---
+    # --- LOGICA DI AUTO-RESUME E SMART SKIP (Mantenuta intatta) ---
     if os.path.exists(latest_path):
         checkpoint = torch.load(latest_path, map_location=device, weights_only=False)
         
-        # 1. Controllo se il training era già stato completato (Flag 'finished' o limite epoche)
         start_epoch = checkpoint['epoch'] + 1
         if checkpoint.get('finished', False) or start_epoch >= epochs:
             print(f"\n[!] Addestramento di {model_name} già completato in precedenza. Skip automatico!")
             return
             
-        # 2. Se non era completato, ripristina e riprendi
         print(f"\n[!] Trovato salvataggio interrotto in: {latest_path}")
         print(f"[!] Ripristino dei pesi e dell'ottimizzatore in corso per {model_name}...")
         
@@ -81,12 +79,10 @@ def train_model(encoder, decoder, train_loader, val_loader, args, device, writer
         val_loss = np.mean(val_losses)
         print(f"[{model_name}] Epoch {epoch+1} | Avg Train Loss: {train_loss:.4f} | Avg Val Loss: {val_loss:.4f}")
 
+        # --- LOGGING PURO TENSORBOARD (Ripristinato) ---
         writer.add_scalar(f'Loss/Train_{model_name}', train_loss, epoch)
         writer.add_scalar(f'Loss/Validation_{model_name}', val_loss, epoch)
         writer.flush()
-
-        if wandb.run is not None:
-            wandb.log({f"Epoch_{model_name}": epoch, f"Loss/Train_{model_name}": train_loss, f"Loss/Validation_{model_name}": val_loss})
 
         # Controllo miglioramento Early Stopping
         if val_loss < best_val_loss:
@@ -96,10 +92,8 @@ def train_model(encoder, decoder, train_loader, val_loader, args, device, writer
         else:
             patience_counter += 1
 
-        # Check per capire se questa è l'ultima epoca in assoluto del training
         is_finished = (patience_counter >= args.patience) or (epoch == epochs - 1)
 
-        # Salvataggio LATEST (con aggiunta del flag 'finished')
         torch.save({
             'epoch': epoch,
             'encoder': encoder.state_dict(),
@@ -118,7 +112,6 @@ def train_model(encoder, decoder, train_loader, val_loader, args, device, writer
 def extract_pseudo_anomalies(encoder, decoder, tag_loader, device, percentile, batch_size, save_dir_ae2):
     cache_path = os.path.join(save_dir_ae2, 'pseudo_anomalies_indices.npy')
     
-    # --- LOGICA DI CACHING (SALVATAGGIO/CARICAMENTO INDICI) ---
     if os.path.exists(cache_path):
         print(f"\n[!] Trovato file cache indici in: {cache_path}")
         print("[!] Caricamento istantaneo delle pseudo-anomalie (Skip fase di estrazione) ...")
@@ -173,31 +166,32 @@ def main(args):
     os.makedirs(args.save_dir_ae2, exist_ok=True)
     
     writer = SummaryWriter(log_dir=os.path.join(args.save_dir_ae1, 'tensorboard_logs_tnt'))
-    run = wandb.init(project="jet-tagging-anomaly-detection-ae-attempt", name=f"train_tnt_noise{args.noise_prob}_lr{args.lr}", config=vars(args))
+    
+    # Sincronizzazione automatica con TensorBoard aggiunta qui per sistemare i grafici
+    run = wandb.init(
+        project="jet-tagging-anomaly-detection-ae-attempt", 
+        name=f"train_tnt_noise{args.noise_prob}_lr{args.lr}", 
+        config=vars(args),
+        sync_tensorboard=True
+    )
     
     train_ae1_loader, val_ae1_loader, tag_loader, _ = get_dataloaders_tnt(
         args.data_path, args.bg_classes, args.img_size, args.batch_size, 0, args.num_train_samples, args.threshold_percentile
     )
     
-    # 1. Addestramento (o Resume/Skip automatico) di AE1
     enc1 = Encoder(latent_space_dim=args.latent_dim_ae1).to(device)
     dec1 = Decoder(latent_space_dim=args.latent_dim_ae1).to(device)
-    
     train_model(enc1, dec1, train_ae1_loader, val_ae1_loader, args, device, writer, args.save_dir_ae1, "ae1_bkg", args.epochs_ae1)
     
-    # Ricarica i pesi migliori di AE1 per usarli nell'estrazione
     ae1_best_path = os.path.join(args.save_dir_ae1, 'ae1_bkg_best.pth')
     checkpoint1 = torch.load(ae1_best_path, map_location=device, weights_only=False)
     enc1.load_state_dict(checkpoint1['encoder'])
     dec1.load_state_dict(checkpoint1['decoder'])
     
-    # 2. Estrazione (o caricamento cache rapido) per preparare i dati di AE2
     train_ae2_loader, val_ae2_loader = extract_pseudo_anomalies(enc1, dec1, tag_loader, device, args.threshold_percentile, args.batch_size, args.save_dir_ae2)
     
-    # 3. Addestramento (o Resume automatico) di AE2
     enc2 = Encoder(latent_space_dim=args.latent_dim_ae2).to(device)
     dec2 = Decoder(latent_space_dim=args.latent_dim_ae2).to(device)
-    
     train_model(enc2, dec2, train_ae2_loader, val_ae2_loader, args, device, writer, args.save_dir_ae2, "ae2_sig", args.epochs_ae2)
     
     writer.close()
@@ -223,5 +217,4 @@ if __name__ == "__main__":
     parser.add_argument('--save_dir_ae1', type=str, required=True)
     parser.add_argument('--save_dir_ae2', type=str, required=True)
     
-    # Il parametro --skip_ae1 è stato rimosso per usare l'intelligenza integrata
     main(parser.parse_args())
