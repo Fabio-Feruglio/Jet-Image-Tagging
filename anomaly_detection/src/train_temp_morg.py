@@ -113,10 +113,15 @@ def main(args):
 
     # 5. Define an optimizer 
     lr = args.lr 
-    optimizer = torch.optim.Adam([
+    optimizer = torch.optim.Adagrad([
+            {'params': encoder.parameters(), 'lr': lr},
+            {'params': decoder.parameters(), 'lr': lr}
+        ], weight_decay=args.weight_decay)
+    """optimizer = torch.optim.Adam([
         {'params': encoder.parameters(), 'lr': lr},
         {'params': decoder.parameters(), 'lr': lr}
     ], weight_decay=args.weight_decay)
+    """
 
     start_epoch = 0
     best_val_loss = float('inf')
