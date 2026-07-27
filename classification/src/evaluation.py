@@ -23,7 +23,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         predictions = [] # Network output
         true = [] # True labels
 
-        print(f"\n--- Eval on test set: {data_split.upper()} ---")
+        print(f"\n Eval on test set: {data_split.upper()}")
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)

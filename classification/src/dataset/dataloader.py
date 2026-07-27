@@ -9,13 +9,41 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
-try:
-    from .data_augmentation import RandomDeadPixel
-except ImportError:  # pragma: no cover
-    from data_augmentation import RandomDeadPixel
 
-### Dataset Classes and Dataloader functions
+### Data Augmentation Classes (attempt)
+class RandomDeadPixel(object):
+    """
+    Simulates dead pixels in a 2D image tensor by randomly setting a certain number of pixels to zero.
+    """
+    def __init__(self, p = 0.5, max_dead_pixels = 10):
+        if max_dead_pixels < 1:
+            raise ValueError("max_dead_pixels must be >= 1")
+        self.prob = p
+        self.max_dead_pixels = max_dead_pixels
 
+    def __call__(self, tensor):
+
+        # Randomly decide whether to apply the transform
+        if torch.rand(1).item() > self.prob:
+            return tensor
+
+        # Clone the input tensor
+        img = tensor.clone()
+        channels, height, width = img.shape
+        
+        # Choose a random number of dead pixels
+        num_dead = torch.randint(1, self.max_dead_pixels + 1, (1,)).item()
+
+        # Choose which pixels to set to zero
+        for _ in range(int(num_dead)):
+            y = torch.randint(0, height, (1,)).item()
+            x = torch.randint(0, width, (1,)).item()
+            img[:, y, x] = 0.0 
+
+        return img
+
+
+### Dataset Class
 class JetImageDataset(Dataset):
     def __init__(self, dataset_filepath, transform = None, indices = None):
         """
@@ -112,13 +140,13 @@ def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
     return mean.item(), std.item()
 
 
-
+### Dataloader preparation function
 def get_dataloaders(data_filepath = "./dataset.h5", img_size = 299, batch_size = 64, num_workers = 0, max_samples = None):
     """
     Prepare the dataloaders for training, test and validation
     """
 
-    # Split the dataset into training, validation, and test sets (stratified by label)
+    # Split the dataset into training (80%), validation (10%), and test (10%) sets (stratified by label)
     with h5py.File(data_filepath, "r") as f:
         labels_obj = f["labels"]
         if not isinstance(labels_obj, h5py.Dataset):

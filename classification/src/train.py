@@ -89,11 +89,11 @@ def main(args):
 
     wandb_run_id = None
     if args.resume_from and os.path.isfile(args.resume_from):
-        
+        print(f"Loading WandB checkpoint from '{args.resume_from}' ...")
         temp_checkpoint = torch.load(args.resume_from, map_location='cpu', weights_only=False)
         if 'wandb_run_id' in temp_checkpoint:
             wandb_run_id = temp_checkpoint['wandb_run_id']
-            print(f"ID: {wandb_run_id}")
+            print(f"WandB ID successfully retrieved: {wandb_run_id}")
 
     # Wandb setup
     if args.mini:
@@ -101,8 +101,8 @@ def main(args):
     else:
         project_name = "jet-tagging-main"
     run = wandb.init(
-        project = project_name,             # Project name
-        name = f"train_{args.mode}_lr{args.lr}",  # Name for the run
+        project = project_name,                     # Project name
+        name = f"train_{args.mode}_lr{args.lr}",    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     

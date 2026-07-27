@@ -104,11 +104,11 @@ def main(args):
     # Wandb setup
     wandb_run_id = None
     if args.resume_from and os.path.isfile(args.resume_from):
-        print(f"Sbircio nel checkpoint '{args.resume_from}' per recuperare l'ID di WandB...")
+        print(f"Loading WandB checkpoint from '{args.resume_from}' ...")
         temp_checkpoint = torch.load(args.resume_from, map_location='cpu', weights_only=False)
         if 'wandb_run_id' in temp_checkpoint:
             wandb_run_id = temp_checkpoint['wandb_run_id']
-            print(f"ID recuperato con successo: {wandb_run_id}")
+            print(f"WandB ID successfully retrieved: {wandb_run_id}")
 
     # Wandb setup
     if args.mini:
@@ -116,7 +116,7 @@ def main(args):
     else:
         project_name = "jet-tagging-main"
         
-    wandb.init(
+    run = wandb.init(
         project=project_name,                 # Project name
         name=f"train_ensemble_lr{args.lr_mlp}",     # Name for the run
         config=vars(args),                          # Save parameters
@@ -227,7 +227,7 @@ def main(args):
             'best_val_loss': best_val_loss,
             'no_improvement_epochs': no_improvement_epochs,
             'warmup_stage': warmup_stage,
-            'wandb_run_id': wandb.run.id
+            'wandb_run_id': run.id
         }
         
         torch.save(checkpoint_dict, os.path.join(args.save_dir, 'ensemble_latest.pth'))
