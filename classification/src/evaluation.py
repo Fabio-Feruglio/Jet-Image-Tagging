@@ -60,10 +60,12 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.figure(figsize=(8, 6))
         sns.heatmap(cm, annot = True, fmt = 'd', cmap = 'Blues', 
                     xticklabels = class_labels, yticklabels = class_labels)
-        plt.xlabel('Predicted Label')
-        plt.ylabel('True Label')
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}')
-        
+        plt.xlabel('Predicted Label', fontsize=20)
+        plt.ylabel('True Label', fontsize=20)
+        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=20)
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+
         cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
         plt.savefig(cm_path, bbox_inches='tight')
         plt.close()
@@ -83,10 +85,12 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}')
-        plt.legend(loc="lower right")
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+        plt.xlabel('False Positive Rate', fontsize=20)
+        plt.ylabel('True Positive Rate', fontsize=20)
+        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}', fontsize=20)
+        plt.legend(loc="lower right", fontsize=20)
         
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
         plt.savefig(roc_path, bbox_inches='tight')
