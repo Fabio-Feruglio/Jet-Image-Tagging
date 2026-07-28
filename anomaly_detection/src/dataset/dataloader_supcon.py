@@ -1,21 +1,18 @@
 import json
 import os
-
 import h5py 
 import torch
 import numpy as np
 from tqdm import tqdm
-
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 
-### Dataset Classes and Dataloader functions
-
 class JetImageAnomalyDataset(Dataset):
-    def __init__(self, dataset_filepath, transform = None, indices = None, bg_classes = [0, 1]):
+    def __init__(self, dataset_filepath, transform = None, indices = None, bg_classes = [0, 1], binary_labels = True):
         """
-        PyTorch dataset for loading 2D jet images from an HDF5 file
+        PyTorch dataset for loading 2D jet images from an HDF5 file.
+        Aggiunto il parametro 'binary_labels' per preservare le etichette originali se necessario.
         """
         self.filepath = dataset_filepath
         self.h5_file = None
@@ -38,32 +35,26 @@ class JetImageAnomalyDataset(Dataset):
 
         self.transform = transform
         self.bg_classes = bg_classes
+        self.binary_labels = binary_labels 
 
     def __len__(self):
         return len(self.indices)
 
     def __getitem__(self, idx):
-
-        # Map the index to the actual index in the h5 file
         actual_idx = self.indices[idx]
         
-        # Open the h5 file if it is not already open
         if self.h5_file is None:
             self.h5_file = h5py.File(self.filepath, 'r')
             
-        # Read image and label from the HDF5 file
-        image_np = self.h5_file['images'][actual_idx] # type: ignore
-        label_np = self.h5_file['labels'][actual_idx] # type: ignore
+        image_np = self.h5_file['images'][actual_idx] 
+        label_np = self.h5_file['labels'][actual_idx] 
 
-        # Map the label to binary if bg_classes is provided:
-        # 0 for background classes, 1 for anomalies
-        if self.bg_classes is not None:
+        # MODIFICA: Appiattisce le classi a 0 (Background) e 1 (Anomalia) SOLO se binary_labels è True
+        if self.bg_classes is not None and self.binary_labels:
             label_np = 0 if label_np in self.bg_classes else 1
         
-        # Convert to torch tensors
         image_tensor = torch.from_numpy(image_np).to(dtype=torch.float32)
         label_tensor = torch.as_tensor(label_np, dtype=torch.long)
-
 
         if image_tensor.ndim == 2:
             image_tensor = image_tensor.unsqueeze(0)
@@ -74,20 +65,13 @@ class JetImageAnomalyDataset(Dataset):
         return image_tensor, label_tensor
     
     def __del__(self):
-        """
-        Destructor
-        """
         if hasattr(self, 'h5_file') and self.h5_file is not None:
             try:
                 self.h5_file.close()
             except Exception:
                 pass
 
-
 def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
-    """
-    Compute mean and standard deviation of the dataset for normalization.
-    """
     if os.path.exists(cache_file):
         print(f"Loading cached mean and std from {cache_file}...")
         with open(cache_file, 'r') as f:
@@ -100,7 +84,6 @@ def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
     
     with torch.no_grad():
         for images, _ in tqdm(dataloader):
-
             channels_sum += images.sum()
             channels_sqrd_sum += (images ** 2).sum()
             num_pixels += images.numel()
@@ -115,12 +98,10 @@ def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
     return mean.item(), std.item()
 
 
-def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_size = 299, batch_size = 64, num_workers = 0, max_samples = None):
+def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_size = 299, batch_size = 64, num_workers = 0, max_samples = None, binary_train_labels=False):
     """
-    Prepare the dataloaders for training, test and validation
+    Aggiunto il parametro binary_train_labels di default a False per il modello Contrastivo.
     """
-
-    # Read labels from the HDF5 file
     with h5py.File(data_filepath, "r") as f:
         labels_obj = f["labels"]
         if not isinstance(labels_obj, h5py.Dataset):
@@ -129,7 +110,6 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
 
     all_indices = np.arange(labels.shape[0])
 
-    # Bg and anomaly masks
     bg_mask = np.isin(labels, bg_classes)
     anomaly_mask = ~bg_mask
 
@@ -141,7 +121,6 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
     print(f"Total Background samples: {len(bg_indices)}")
     print(f"Total Anomaly samples: {len(anomaly_indices)}")
 
-    # Limit the number of background samples if max_samples is specified
     if max_samples is not None and max_samples < len(bg_indices):
         print(f"Limiting Background dataset to {max_samples} samples (stratified)...")
         bg_indices, _, bg_labels, _ = train_test_split(
@@ -151,7 +130,6 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
             stratify=bg_labels
         )
 
-    # Split background samples into Train+Val and Test (85% (70+15%) Train+Val, 15% Test)
     bg_train_val_idx, bg_test_idx, bg_train_val_labels, _ = train_test_split(
         bg_indices, bg_labels, 
         test_size=0.15, 
@@ -159,7 +137,6 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
         stratify=bg_labels
     )
     
-    # Divide the Train+Val set into Train and Validation (70% Train, 15% Validation)
     train_idx, val_idx = train_test_split(
         bg_train_val_idx, 
         test_size=0.15 / 0.85, 
@@ -167,7 +144,6 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
         stratify=bg_train_val_labels 
     )
 
-    # Sample anomalies for the test set
     num_test_anomalies = len(bg_test_idx)
     num_test_anomalies = min(num_test_anomalies, len(anomaly_indices))
     sampled_anomaly_idx, _, _, _ = train_test_split(
@@ -177,7 +153,6 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
         stratify=anomaly_labels
     )
 
-    # Combine background test indices with sampled anomaly indices for the final test set
     test_idx = np.concatenate([bg_test_idx, sampled_anomaly_idx])
     np.random.shuffle(test_idx)
 
@@ -185,11 +160,11 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
     print(f"Validation set size (only bg): {len(val_idx)}")
     print(f"Test set size (bg + anomalies): {len(test_idx)}")
 
-    # Compute mean and std for normalization
     raw_train_dataset = JetImageAnomalyDataset(
         dataset_filepath = data_filepath, 
         indices = train_idx, 
-        bg_classes = bg_classes
+        bg_classes = bg_classes,
+        binary_labels = True # Usato solo per calcolare mean e std, la label non importa
     )
     
     stat_loader = DataLoader(
@@ -200,41 +175,41 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
     )
     calculated_mean, calculated_std = get_mean_and_std(stat_loader)
 
-    # Transforms for data augmentation
     train_transforms = transforms.Compose([
-        transforms.Resize((img_size, img_size), antialias = True), # Resize
-        transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), # Normalize with calculated stats
+        transforms.Resize((img_size, img_size), antialias = True), 
+        transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), 
     ])
     
-    # For the evaluation we do not augment data
     eval_transforms = transforms.Compose([
         transforms.Resize((img_size, img_size), antialias = True),
-        transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), # Normalize with calculated stats
+        transforms.Normalize(mean = [calculated_mean], std = [calculated_std]), 
     ])
 
 
-    # Datasets creation
+    # MODIFICA: Configurazione delle etichette nei dataset
     train_dataset = JetImageAnomalyDataset(
         dataset_filepath = data_filepath, 
         transform = train_transforms, 
         indices = train_idx, 
-        bg_classes = bg_classes
+        bg_classes = bg_classes,
+        binary_labels = binary_train_labels  # Consente etichette originali per il contrastivo
     )
     valid_dataset = JetImageAnomalyDataset(
         dataset_filepath = data_filepath, 
         transform = eval_transforms, 
         indices = val_idx, 
-        bg_classes = bg_classes
+        bg_classes = bg_classes,
+        binary_labels = True  # Sempre True per calcolare correttamente le metriche 0/1
     )
     
     test_dataset  = JetImageAnomalyDataset(
         dataset_filepath = data_filepath, 
         transform = eval_transforms, 
         indices = test_idx, 
-        bg_classes = bg_classes
+        bg_classes = bg_classes,
+        binary_labels = True  # Sempre True per calcolare correttamente le ROC
     )
 
-    # DataLoaders creation
     pin_memory = torch.cuda.is_available()
 
     train_dataloader = DataLoader(

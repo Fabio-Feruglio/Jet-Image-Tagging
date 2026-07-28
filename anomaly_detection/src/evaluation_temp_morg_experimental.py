@@ -6,13 +6,70 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import seaborn as sns
-import pandas as pd
 from sklearn.metrics import roc_curve, auc
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 
 from dataset.dataloader import get_dataloaders 
 from model.other_models_attempt.autoencoder import Encoder, Decoder
+
+def save_reconstruction_pairs_by_class(original, reconstructed, labels, save_dir, data_split, num_per_class=3):
+    """
+    Salva un'immagine PNG contenente num_per_class immagini di Background e 
+    num_per_class immagini Anomale, affiancate dalle loro ricostruzioni VAE.
+    
+    Format supportato: Singolo Canale (Grayscale) [Batch, 1, H, W] con dimensioni spaziali dinamiche.
+    """
+    img_dir = os.path.join(save_dir, 'reconstructions')
+    os.makedirs(img_dir, exist_ok=True)
+    
+    # Trasformiamo i tensori in numpy array per il plotting
+    orig_np = original.cpu().detach().numpy()
+    recon_np = reconstructed.cpu().detach().numpy()
+    labels_np = labels.cpu().detach().numpy()
+    
+    # Identifichiamo gli indici per background (0) e anomalie (1)
+    bg_indices = np.where(labels_np == 0)[0][:num_per_class]
+    anom_indices = np.where(labels_np == 1)[0][:num_per_class]
+    
+    # Uniamo gli indici trovati (prima tutti i background, poi tutte le anomalie)
+    selected_indices = np.concatenate([bg_indices, anom_indices])
+    total_images = len(selected_indices)
+    
+    if total_images == 0:
+        print(f"Attenzione: Nessun dato trovato per salvare le ricostruzioni su {data_split}.")
+        return
+
+    # Creiamo la figura: 2 colonne (Input vs Output) x N righe totali
+    fig, axes = plt.subplots(nrows=total_images, ncols=2, figsize=(8, 3 * total_images))
+    
+    # Gestione di sicurezza per indicizzazione se total_images == 1
+    if total_images == 1:
+        axes = [axes]
+        
+    for i, idx in enumerate(selected_indices):
+        label_type = "Background (Normal)" if labels_np[idx] == 0 else "Anomaly (New Physics)"
+        
+        # Rimuoviamo la dimensione del canale (da [1, H, W] a [H, W]) usando squeeze()
+        img_in = orig_np[idx].squeeze()
+        img_out = recon_np[idx].squeeze()
+
+        # Colonna 1: Input Originale con tipo di dato indicato nel titolo
+        ax_orig = axes[i][0]
+        ax_orig.imshow(img_in, cmap='gray', vmin=0.0, vmax=1.0)
+        ax_orig.set_title(f"Input - {label_type}")
+        ax_orig.axis('off')
+        
+        # Colonna 2: Output Ricostruito dal VAE
+        ax_recon = axes[i][1]
+        ax_recon.imshow(img_out, cmap='gray', vmin=0.0, vmax=1.0)
+        ax_recon.set_title(f"VAE Recon - {label_type}")
+        ax_recon.axis('off')
+        
+    plt.tight_layout()
+    
+    save_path = os.path.join(img_dir, f"reconstructions_comparison_{data_split}.png")
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Confronto ricostruzioni salvato in: {save_path}")
 
 def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split):
     encoder.eval()
@@ -22,47 +79,65 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     
     anomaly_scores = []
     true_labels = []
-    latent_vectors = []
 
+    saved_images = False
+    
     print(f"\n--- Eval on set: {data_split.upper()} ---")
     with torch.no_grad():
         for batch_x, batch_y in tqdm(dataloader, desc="Evaluating"):
             batch_x = batch_x.to(device)
+            # batch_y contains the true labels (0 for background, 1 for anomaly)
             
             # Forward pass
             encoded = encoder(batch_x)
             reconstructed = decoder(encoded)
 
+            if not saved_images:
+                            # Verifichiamo che il batch contenga sia 0 che 1
+                            has_bg = (batch_y == 0).any()
+                            has_anom = (batch_y == 1).any()
+                            
+                            if has_bg and has_anom:
+                                save_reconstruction_pairs_by_class(
+                                    original=batch_x, 
+                                    reconstructed=reconstructed, 
+                                    labels=batch_y, 
+                                    save_dir=save_dir, 
+                                    data_split=data_split, 
+                                    num_per_class=3 # Salverà 3 coppie di Background e 3 di Anomalie
+                                )
+                                saved_images = True
+
             # Anomaly score
+            # shape [batch_size, channels, height, width]
             loss_per_pixel = mse_loss_fn(reconstructed, batch_x)
+            
+            # mean over channels, height, and width to get a single score per image
+            # shape [batch_size]
             loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1)
 
-            # Save scores and true labels
+            # Save the scores and true labels
             anomaly_scores.extend(loss_per_image.cpu().numpy())
             true_labels.extend(batch_y.numpy())
-            
-            # Save latent representations (appiattite per PCA/t-SNE)
-            latent_vectors.extend(encoded.view(encoded.size(0), -1).cpu().numpy())
 
     anomaly_scores = np.array(anomaly_scores)
     true_labels = np.array(true_labels)
-    latent_vectors = np.array(latent_vectors)
     
     mean_loss = np.mean(anomaly_scores)
     print(f"\nResults {data_split.upper()}:")
     print(f"Mean Reconstruction Loss: {mean_loss:.6f}")
 
-    # ---------------------------------------------------------
     # PLOT 1: Anomaly Score Distribution
-    # ---------------------------------------------------------
     plt.figure(figsize=(10, 6))
     
+    # Background (Label 0)
     sns.histplot(anomaly_scores[true_labels == 0], color='blue', label='Background (QCD/Light)', 
-                 kde=True, stat='density', alpha=0.5, bins=50, binrange=(0, 1.5))
+                 kde=True, stat='density', alpha=0.5, bins=50)
     
+    # Anomalies (Label 1)
     if np.sum(true_labels == 1) > 0:
         sns.histplot(anomaly_scores[true_labels == 1], color='red', label='Anomalies (New Physics)', 
-                     kde=True, stat='density', alpha=0.5, bins=50, binrange=(0, 1.5))
+                     kde=True, stat='density', alpha=0.5, bins=50)
         
     plt.xlabel('Reconstruction Error (Anomaly Score)')
     plt.ylabel('Density')
@@ -74,107 +149,32 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     plt.close()
     print(f"Distribution plot saved in: {dist_path}")
 
-    # ---------------------------------------------------------
     # PLOT 2: ROC Curve 
-    # ---------------------------------------------------------
-    # ---------------------------------------------------------
-    # PLOT 2 & 3: ROC Curve & Background Rejection Curve
-    # ---------------------------------------------------------
     roc_auc = None
     if np.sum(true_labels == 1) > 0:
         fpr, tpr, thresholds = roc_curve(true_labels, anomaly_scores)
         roc_auc = auc(fpr, tpr)
         
-        # Standard ROC Curve ---
         plt.figure(figsize=(8, 8))
         plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.3f})')
         plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
         
-        plt.xlabel('False Positive Rate (Background Efficiency $\epsilon_B$)')
-        plt.ylabel('True Positive Rate (Signal Efficiency $\epsilon_S$)')
-        plt.title(f'Standard ROC Curve - {data_split.capitalize()}')
+        plt.xlabel('False Positive Rate (Background Mistag)')
+        plt.ylabel('True Positive Rate (Anomaly Efficiency)')
+        plt.title(f'Anomaly Detection ROC Curve - {data_split.capitalize()}')
         plt.legend(loc="lower right")
         
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
-
-        # Background Rejection (e_S vs 1/e_B) ---
-        plt.figure(figsize=(8, 8))
-        
-        valid_idx = fpr > 0
-        fpr_valid = fpr[valid_idx]
-        tpr_valid = tpr[valid_idx]
-        
-        # Rejection = 1 / FPR
-        rejection = 1.0 / fpr_valid
-        
-        plt.plot(tpr_valid, rejection, color='purple', lw=2, label=f'Autoencoder Rejection')
-        plt.yscale('log') 
-        plt.xlim((0.0, 1.0))
-        
-        plt.xlabel('Signal Efficiency ($\epsilon_S$)')
-        plt.ylabel('Background Rejection ($1/\epsilon_B$)')
-        plt.title(f'Background Rejection Curve - {data_split.capitalize()}')
-        plt.grid(True, which="both", ls="--", alpha=0.5)
-        plt.legend(loc="upper right")
-        
-        rej_path = os.path.join(save_dir, f'rejection_curve_{data_split}_{model_name}.png')
-        plt.savefig(rej_path, bbox_inches='tight')
-        plt.close()
-        
-        print(f"ROC and Rejection plots saved in: {save_dir}")
+        print(f"ROC plot saved in: {roc_path}")
     else:
-        print(f"Skipping ROC and Rejection curves for {data_split.upper()} (No anomalies present).")
-
-    # ---------------------------------------------------------
-    # PLOT 3: Latent Space Projections (PCA & t-SNE)
-    # ---------------------------------------------------------
-    print(f"Computing PCA and t-SNE for latent space projection ({data_split.upper()})")
-    
-    label_names = {0: 'Background (QCD/Light)', 1: 'Anomalies (New Physics)'}
-    mapped_labels = [label_names[l] for l in true_labels]
-
-    # PCA 
-    pca = PCA(n_components=2)
-    latent_pca = pca.fit_transform(latent_vectors)
-    
-    plt.figure(figsize=(8, 8))
-    sns.scatterplot(x=latent_pca[:, 0], y=latent_pca[:, 1], hue=mapped_labels, 
-                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (New Physics)': 'red'}, 
-                    alpha=0.6)
-    plt.title(f'PCA Latent Space Projection - {data_split.capitalize()}')
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
-    plt.legend()
-    
-    pca_path = os.path.join(save_dir, f'pca_latent_{data_split}_{model_name}.png')
-    plt.savefig(pca_path, bbox_inches='tight')
-    plt.close()
-    print(f"PCA plot saved in: {pca_path}")
-
-    # t-SNE 
-    # Note: t-SNE can be slow for large datasets; consider subsampling if needed
-    tsne = TSNE(n_components=2, random_state=42)
-    latent_tsne = tsne.fit_transform(latent_vectors)
-    
-    plt.figure(figsize=(8, 8))
-    sns.scatterplot(x=latent_tsne[:, 0], y=latent_tsne[:, 1], hue=mapped_labels, 
-                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (New Physics)': 'red'}, 
-                    alpha=0.6)
-    plt.title(f't-SNE Latent Space Projection - {data_split.capitalize()}')
-    plt.xlabel('t-SNE Dimension 1')
-    plt.ylabel('t-SNE Dimension 2')
-    plt.legend()
-    
-    tsne_path = os.path.join(save_dir, f'tsne_latent_{data_split}_{model_name}.png')
-    plt.savefig(tsne_path, bbox_inches='tight')
-    plt.close()
-    print(f"t-SNE plot saved in: {tsne_path}")
+        print(f"Skipping ROC curve for {data_split.upper()} (No anomalies present in validation set).")
 
     return mean_loss, roc_auc
+
 
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

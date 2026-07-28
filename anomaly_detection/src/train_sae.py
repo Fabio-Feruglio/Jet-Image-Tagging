@@ -11,7 +11,7 @@ from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 
 ### TRAINING ###
-def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
+def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device, l1_lambda):
     encoder.train()
     decoder.train()
     losses = []
@@ -25,8 +25,15 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         encoded = encoder(x_batch)
         reconstructed_x = decoder(encoded)
 
-        # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
+        # Calcolo Reconstruction Loss (MSE)
+        recon_loss = loss_fn(reconstructed_x, x_batch)  
+        
+        # Calcolo Sparsity Penalty (Norma L1 sulle attivazioni latenti)
+        # Sommiamo il valore assoluto delle attivazioni per ogni immagine, poi facciamo la media sul batch
+        l1_penalty = torch.abs(encoded).sum(dim=1).mean()
+        
+        # Total Loss
+        loss = recon_loss + l1_lambda * l1_penalty
 
         # Backward pass
         optimizer.zero_grad() 
@@ -37,12 +44,11 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         losses.append(loss.item())
 
     avg_loss = np.mean(losses)
-
     return avg_loss
 
 
 ### VALIDATION ###
-def val_epoch(encoder, decoder, dataloader, loss_fn, device):
+def val_epoch(encoder, decoder, dataloader, loss_fn, device, l1_lambda):
     encoder.eval()
     decoder.eval()
     losses = []
@@ -56,7 +62,10 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
 
             encoded = encoder(x_batch)
             reconstructed_x = decoder(encoded)
-            loss = loss_fn(reconstructed_x, x_batch)
+            
+            recon_loss = loss_fn(reconstructed_x, x_batch)
+            l1_penalty = torch.abs(encoded).sum(dim=1).mean()
+            loss = recon_loss + l1_lambda * l1_penalty
 
             losses.append(loss.item())
             
@@ -89,8 +98,8 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
-        name = f"train_ae_lr{args.lr}",                    # Name for the run
+        project = "jet-tagging-anomaly-detection-ae-attempt",             
+        name = f"train_sae_lr{args.lr}_dim{args.latent_space_dim}_l1{args.l1_lambda}",                    
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -113,15 +122,10 @@ def main(args):
 
     # 5. Define an optimizer 
     lr = args.lr 
-    optimizer = torch.optim.Adagrad([
-            {'params': encoder.parameters(), 'lr': lr},
-            {'params': decoder.parameters(), 'lr': lr}
-        ], weight_decay=args.weight_decay)
-    """optimizer = torch.optim.Adam([
+    optimizer = torch.optim.Adam([
         {'params': encoder.parameters(), 'lr': lr},
         {'params': decoder.parameters(), 'lr': lr}
     ], weight_decay=args.weight_decay)
-    """
 
     start_epoch = 0
     best_val_loss = float('inf')
@@ -148,8 +152,9 @@ def main(args):
     
     # 6. Training cycle
     for epoch in range(start_epoch, args.epochs):
-        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device)
-        val_loss = val_epoch(encoder, decoder, valid_dataloader, loss_fn, device)
+        # Aggiunto parametro args.l1_lambda
+        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device, args.l1_lambda)
+        val_loss = val_epoch(encoder, decoder, valid_dataloader, loss_fn, device, args.l1_lambda)
 
         print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f}')
         print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.4f}')
@@ -183,9 +188,9 @@ def main(args):
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'sparse_autoencoder_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'sparse_autoencoder_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -193,7 +198,7 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "sparse_autoencoder_best.pth")}')
 
 if __name__ == "__main__":
     # Command line args configuration
@@ -203,6 +208,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
+    parser.add_argument('--l1_lambda', type=float, default=1e-4, help='L1 regularization weight for the latent space')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization) factor')
     parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")

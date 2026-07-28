@@ -1,6 +1,7 @@
 import argparse
 import os
 import torch
+import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
@@ -11,7 +12,7 @@ from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 
 ### TRAINING ###
-def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
+def train_epoch(encoder, decoder, dataloader, optimizer, device, l1_lambda):
     encoder.train()
     decoder.train()
     losses = []
@@ -25,24 +26,32 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         encoded = encoder(x_batch)
         reconstructed_x = decoder(encoded)
 
-        # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
+        # 1. Calcolo Reconstruction Loss: MAE (L1 Loss sull'immagine)
+        recon_loss = F.l1_loss(reconstructed_x, x_batch)  
+        
+        # 2. Calcolo Sparsity Penalty: Norma L1 sulle attivazioni latenti 
+        # (SCOMMENTA LA RIGA SEGUENTE PER ABILITARE LA REGOLARIZZAZIONE)
+        # l1_penalty = torch.abs(encoded).sum(dim=1).mean()
+        
+        # Total Loss 
+        # (SCOMMENTA LA RIGA SEGUENTE E COMMENTA "loss = recon_loss" PER ABILITARE LA REGOLARIZZAZIONE)
+        # loss = recon_loss + l1_lambda * l1_penalty
+        loss = recon_loss
 
         # Backward pass
         optimizer.zero_grad() 
         loss.backward() 
         optimizer.step()  
 
-        train_iterator.set_description(f"Train loss: {loss.item():.4f}")
+        train_iterator.set_description(f"Train loss (MAE): {loss.item():.4f}")
         losses.append(loss.item())
 
     avg_loss = np.mean(losses)
-
     return avg_loss
 
 
 ### VALIDATION ###
-def val_epoch(encoder, decoder, dataloader, loss_fn, device):
+def val_epoch(encoder, decoder, dataloader, device, l1_lambda):
     encoder.eval()
     decoder.eval()
     losses = []
@@ -56,11 +65,18 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
 
             encoded = encoder(x_batch)
             reconstructed_x = decoder(encoded)
-            loss = loss_fn(reconstructed_x, x_batch)
+            
+            # MAE in validazione
+            recon_loss = F.l1_loss(reconstructed_x, x_batch)
+            
+            # (SCOMMENTA QUESTE RIGHE PER TRACCIARE ANCHE LA LOSS REGOLARIZZATA IN VALIDAZIONE)
+            # l1_penalty = torch.abs(encoded).sum(dim=1).mean()
+            # loss = recon_loss + l1_lambda * l1_penalty
+            loss = recon_loss
 
             losses.append(loss.item())
             
-            val_iterator.set_description(f"Val loss: {loss.item():.4f}")
+            val_iterator.set_description(f"Val loss (MAE): {loss.item():.4f}")
             
     avg_loss = np.mean(losses)
     
@@ -81,7 +97,6 @@ def main(args):
 
     wandb_run_id = None
     if args.resume_from and os.path.isfile(args.resume_from):
-        
         temp_checkpoint = torch.load(args.resume_from, map_location='cpu', weights_only=False)
         if 'wandb_run_id' in temp_checkpoint:
             wandb_run_id = temp_checkpoint['wandb_run_id']
@@ -89,8 +104,8 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
-        name = f"train_ae_lr{args.lr}",                    # Name for the run
+        project = "jet-tagging-anomaly-detection-ae-attempt",             
+        name = f"train_ae_mae_lr{args.lr}_dim{args.latent_space_dim}",                    
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -106,22 +121,16 @@ def main(args):
         max_samples = args.max_samples
     )
     
-    # 4. Initialize model and loss function
+    # 4. Initialize model
     encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
-    loss_fn = torch.nn.MSELoss()
 
     # 5. Define an optimizer 
     lr = args.lr 
-    optimizer = torch.optim.Adagrad([
-            {'params': encoder.parameters(), 'lr': lr},
-            {'params': decoder.parameters(), 'lr': lr}
-        ], weight_decay=args.weight_decay)
-    """optimizer = torch.optim.Adam([
+    optimizer = torch.optim.Adam([
         {'params': encoder.parameters(), 'lr': lr},
         {'params': decoder.parameters(), 'lr': lr}
     ], weight_decay=args.weight_decay)
-    """
 
     start_epoch = 0
     best_val_loss = float('inf')
@@ -148,8 +157,8 @@ def main(args):
     
     # 6. Training cycle
     for epoch in range(start_epoch, args.epochs):
-        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device)
-        val_loss = val_epoch(encoder, decoder, valid_dataloader, loss_fn, device)
+        train_loss = train_epoch(encoder, decoder, train_dataloader, optimizer, device, args.l1_lambda)
+        val_loss = val_epoch(encoder, decoder, valid_dataloader, device, args.l1_lambda)
 
         print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f}')
         print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.4f}')
@@ -183,9 +192,9 @@ def main(args):
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'ae_mae_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'ae_mae_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -193,23 +202,23 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "ae_mae_best.pth")}')
 
 if __name__ == "__main__":
-    # Command line args configuration
-    parser = argparse.ArgumentParser(description="Train the ensemble model for jet image classification")
-    parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1], help='Classes to consider as background (e.g. 0 1)')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
-    parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
-    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
+    parser = argparse.ArgumentParser(description="Train the Autoencoder with MAE (and optional Latent L1)")
+    parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1], help='Classes to consider as background')
+    parser.add_argument('--epochs', type=int, default=40, help='Number of epochs')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch dimension')
+    parser.add_argument('--img_size', type=int, default=128, help='Image size for resizing')
+    parser.add_argument('--latent_space_dim', type=int, default=16, help='Dimension of the latent space')
+    parser.add_argument('--l1_lambda', type=float, default=1e-4, help='L1 regularization weight for the latent space (if enabled)')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization) factor')
     parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
     parser.add_argument('--data_path', type=str, default='./dataset.h5', help='Path to the dataset file')
-    parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
+    parser.add_argument('--save_dir', type=str, default='./checkpoints_mae', help='Directory for model/results saving')
     parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
-    parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
+    parser.add_argument('--patience', type=int, default=10, help='Number of epochs to wait for improvement before stopping')
 
     args = parser.parse_args()
     main(args)

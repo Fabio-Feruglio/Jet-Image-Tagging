@@ -10,22 +10,25 @@ import numpy as np
 from dataset.dataloader import get_dataloaders
 from model.resnet import ResNet50
 from model.inceptionv3 import InceptionV3
-from model.ensemble import EnsembleModel
+from model.mini_ensemble import MiniResNet, MiniInception
 
 # Example file for tuning with optuna and viewing training loss / validation loss with Wandb
 
-def build_model(model_name):
+def build_model(model_name, mini=False):
     """
     Use optuna 'trial' object to define a dynamic model
     """
     if model_name == "resnet":
-        model = ResNet50(num_classes = 5)  
+        if mini:
+            model = MiniResNet(out_features = 5)
+        else:
+            model = ResNet50(num_classes = 5)  
         return model
     elif model_name == "inception":
-        model = InceptionV3(num_classes = 5)  
-        return model
-    elif model_name == "ensemble":
-        model = EnsembleModel(num_classes = 5)
+        if mini:
+            model = MiniInception(out_features = 5)
+        else:
+            model = InceptionV3(num_classes = 5)  
         return model
     else:
         raise ValueError(f"Model {model_name} not supported.")
@@ -45,8 +48,13 @@ def objective(trial, args):
     print(f"Learning rate: {lr}, Batch size: {batch_size}, Weight decay: {weight_decay}")
     
     # Initialize WandB: we can use this instead of TensorBoard, for better sharing
+    if args.mini:
+        project_name = "jet-tagging-tuning-mini"
+    else:
+        project_name = "jet-tagging-tuning"
+
     wandb.init(
-        project = "jet-tagging-tuning",   # Project name
+        project = project_name,   # Project name
         group = f"optuna-{args.model}",   # group experiment runs
         name = f"trial_{trial.number}",   # name of the run
         config = trial.params,            # parameters of each experiment
@@ -60,7 +68,7 @@ def objective(trial, args):
                                                             num_workers = min(4, os.cpu_count() or 1),
                                                             max_samples = args.max_samples)
     
-    model = build_model(args.model).to(device)
+    model = build_model(args.model, mini=args.mini).to(device)
     loss_fn = nn.CrossEntropyLoss()
 
  
@@ -173,12 +181,13 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('--mini', type=bool, default=False, help='Use a smaller network')
     parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/JetTagging/data/jet_images_299.h5', help='Path to the dataset')
     parser.add_argument('--save_dir', type=str, default='/content/drive/MyDrive/JetTagging/optuna_logs', help='Directory to save checkpoints andthe best hyperparameters')
     parser.add_argument('--tune_epochs', type=int, default=10, help="Epochs for each training (keep low: max 10-15)")
     parser.add_argument('--warmup_epochs', type=int, default=4, help="Warmup epochs for pruning")
     parser.add_argument('--n_trials', type=int, default=20, help="Total number of trials")
-    parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception', 'ensemble'], help="Model name")
+    parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'inception'], help="Model name")
     parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
     parser.add_argument('--max_samples', type=int, default=20000, help="Maximum number of samples to use for tuning")
     args = parser.parse_args()

@@ -8,6 +8,7 @@ import wandb
 
 from dataset.dataloader import get_dataloaders
 from model.ensemble import EnsembleModel
+from model.mini_ensemble import MiniEnsemble
 
 def set_backbone_trainable(model, trainable: bool):
     """
@@ -110,8 +111,13 @@ def main(args):
             print(f"ID recuperato con successo: {wandb_run_id}")
 
     # Wandb setup
+    if args.mini:
+        project_name = "jet-tagging-mini"
+    else:
+        project_name = "jet-tagging-main"
+        
     wandb.init(
-        project="jet-tagging-main",                 # Project name
+        project=project_name,                 # Project name
         name=f"train_ensemble_lr{args.lr_mlp}",     # Name for the run
         config=vars(args),                          # Save parameters
         id=wandb_run_id,                            # Passa l'ID (None se si parte da zero)
@@ -127,15 +133,25 @@ def main(args):
         max_samples = args.max_samples
     )
     
-    model = EnsembleModel(
-        num_classes = 5, 
-        resnet_path = args.resnet_weights, 
-        inception_path = args.inception_weights, 
-        weights_device = str(device),
-        hidden_layer_size = args.hidden_layer_size,
-        dropout_mlp = args.dropout_mlp
+    if args.mini:
+        model = MiniEnsemble(
+            num_classes = 5, 
+            resnet_path = args.resnet_weights, 
+            inception_path = args.inception_weights, 
+            weights_device = str(device),
+            hidden_layer_size = args.hidden_layer_size,
+            dropout_mlp = args.dropout_mlp
         ).to(device)
-    
+    else:
+        model = EnsembleModel(
+            num_classes = 5, 
+            resnet_path = args.resnet_weights, 
+            inception_path = args.inception_weights, 
+            weights_device = str(device),
+            hidden_layer_size = args.hidden_layer_size,
+            dropout_mlp = args.dropout_mlp
+        ).to(device)
+
     loss_fn = torch.nn.CrossEntropyLoss()
 
     scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
@@ -233,7 +249,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Jet Image Classification Trainer")
-    
+    parser.add_argument('--mini', type=bool, default=False, help='Use a smaller network')
     parser.add_argument('--resnet_weights', type=str, default=None, help='Resnet weights path')
     parser.add_argument('--inception_weights', type=str, default=None, help='Inception weights path')
     parser.add_argument('--epochs', type=int, default=30)

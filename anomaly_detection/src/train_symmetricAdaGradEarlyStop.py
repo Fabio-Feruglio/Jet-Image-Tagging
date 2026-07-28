@@ -10,23 +10,36 @@ from dataset.dataloader import get_dataloaders
 from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 
+def apply_pepper_noise(images, prob=0.1):
+    """
+    Simula 'dead cells' spegnendo (0) una percentuale casuale di pixel.
+    Viene applicato solo ai dati in input, non al target.
+    """
+    if prob <= 0.0:
+        return images
+    mask = (torch.rand_like(images) > prob).float()
+    return images * mask
+
+
 ### TRAINING ###
-def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
+def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device, noise_prob):
     encoder.train()
     decoder.train()
     losses = []
 
-    train_iterator = tqdm(dataloader)
-    for x_batch, label_batch in train_iterator:
+    train_iterator = tqdm(dataloader, desc="Training")
+    for x_batch, _ in train_iterator:
         x_batch = x_batch.to(device)
-        label_batch = label_batch.to(device)
+        
+        # Applica il Pepper Noise per il DAE (se noise_prob > 0)
+        x_noisy = apply_pepper_noise(x_batch, prob=noise_prob)
 
-        # Forward pass
-        encoded = encoder(x_batch)
+        # Forward pass sull'immagine corrotta
+        encoded = encoder(x_noisy)
         reconstructed_x = decoder(encoded)
 
-        # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
+        # Loss calcolata contro l'immagine ORIGINALE (pulita)
+        loss = loss_fn(reconstructed_x, x_batch) 
 
         # Backward pass
         optimizer.zero_grad() 
@@ -37,35 +50,45 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         losses.append(loss.item())
 
     avg_loss = np.mean(losses)
-
     return avg_loss
 
 
-### VALIDATION ###
+### VALIDATION CON VARIANZA ###
 def val_epoch(encoder, decoder, dataloader, loss_fn, device):
     encoder.eval()
     decoder.eval()
     losses = []
+    variances = []
+    
+    # Inizializziamo una Loss Function senza riduzione per avere l'errore per singolo pixel
+    mse_none = torch.nn.MSELoss(reduction='none')
 
     with torch.no_grad():
-        val_iterator = tqdm(dataloader)
+        val_iterator = tqdm(dataloader, desc="Validation")
 
-        for x_batch, label_batch in val_iterator:
+        for x_batch, _ in val_iterator:
             x_batch = x_batch.to(device)
-            label_batch = label_batch.to(device)
-
+            
+            # In validazione il modello DEVE ricostruire l'immagine pulita originale
             encoded = encoder(x_batch)
             reconstructed_x = decoder(encoded)
+            
+            # Loss media classica (per logging e storico)
             loss = loss_fn(reconstructed_x, x_batch)
-
             losses.append(loss.item())
             
-            val_iterator.set_description(f"Val loss: {loss.item():.4f}")
+            # Calcolo Varianza degli errori per singola feature (pixel) suggerito da BuHuLaSpa
+            pixel_wise_loss = mse_none(reconstructed_x, x_batch).view(x_batch.size(0), -1)
+            batch_variance = torch.var(pixel_wise_loss, dim=1).mean().item()
+            variances.append(batch_variance)
+
+            val_iterator.set_description(f"Val loss: {loss.item():.4f} | Var: {batch_variance:.6f}")
             
     avg_loss = np.mean(losses)
+    avg_var = np.mean(variances)
+    print(f"Validation Loss: {avg_loss:.4f} | Validation Variance: {avg_var:.6f}")
     
-    print(f"Validation Loss: {avg_loss:.4f}")
-    return avg_loss
+    return avg_loss, avg_var
 
 
 def main(args):
@@ -81,7 +104,6 @@ def main(args):
 
     wandb_run_id = None
     if args.resume_from and os.path.isfile(args.resume_from):
-        
         temp_checkpoint = torch.load(args.resume_from, map_location='cpu', weights_only=False)
         if 'wandb_run_id' in temp_checkpoint:
             wandb_run_id = temp_checkpoint['wandb_run_id']
@@ -89,21 +111,21 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
-        name = f"train_ae_lr{args.lr}",                    # Name for the run
-        config = vars(args),
-        id = wandb_run_id,     
-        resume = "allow"                                     
+        project="jet-tagging-anomaly-detection-ae-attempt",
+        name=f"train_ae_symm_noise{args.noise_prob}_lr{args.lr}", 
+        config=vars(args),
+        id=wandb_run_id,     
+        resume="allow"                                     
     )
     
     # 3. Load dataloaders 
     train_dataloader, valid_dataloader, _ = get_dataloaders(
-        data_filepath = args.data_path, 
-        bg_classes = args.bg_classes,
-        img_size = args.img_size, 
-        batch_size = args.batch_size, 
-        num_workers = min(4, os.cpu_count() or 1),
-        max_samples = args.max_samples
+        data_filepath=args.data_path, 
+        bg_classes=args.bg_classes,
+        img_size=args.img_size, 
+        batch_size=args.batch_size, 
+        num_workers=min(4, os.cpu_count() or 1),
+        max_samples=args.max_samples
     )
     
     # 4. Initialize model and loss function
@@ -111,20 +133,15 @@ def main(args):
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     loss_fn = torch.nn.MSELoss()
 
-    # 5. Define an optimizer 
+    # 5. Define an optimizer (Adagrad implementato)
     lr = args.lr 
     optimizer = torch.optim.Adagrad([
-            {'params': encoder.parameters(), 'lr': lr},
-            {'params': decoder.parameters(), 'lr': lr}
-        ], weight_decay=args.weight_decay)
-    """optimizer = torch.optim.Adam([
         {'params': encoder.parameters(), 'lr': lr},
         {'params': decoder.parameters(), 'lr': lr}
     ], weight_decay=args.weight_decay)
-    """
 
     start_epoch = 0
-    best_val_loss = float('inf')
+    best_val_var = float('inf') # Ora monitoriamo la varianza migliore
     patience = args.patience 
     no_improvement_epochs = 0
 
@@ -138,36 +155,38 @@ def main(args):
             decoder.load_state_dict(checkpoint['decoder_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
-            if 'best_val_loss' in checkpoint:
-                best_val_loss = checkpoint['best_val_loss']
-            if 'no_improvement_epochs' in checkpoint:
-                no_improvement_epochs = checkpoint['no_improvement_epochs']
+            
+            # Gestione sicura del recupero della best variance
+            best_val_var = checkpoint.get('best_val_var', float('inf'))
+            no_improvement_epochs = checkpoint.get('no_improvement_epochs', 0)
             print(f"Training resumed from {start_epoch}")
         else:
             print(f"No file found in '{args.resume_from}', starting from epoch = 0.")
     
     # 6. Training cycle
     for epoch in range(start_epoch, args.epochs):
-        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device)
-        val_loss = val_epoch(encoder, decoder, valid_dataloader, loss_fn, device)
+        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device, args.noise_prob)
+        val_loss, val_var = val_epoch(encoder, decoder, valid_dataloader, loss_fn, device)
 
         print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f}')
-        print(f'EPOCH {epoch+1}/{args.epochs} - Validation Loss: {val_loss:.4f}')
 
         # Add values for TensorBoard viewer
         writer.add_scalar('Loss/Train', train_loss, epoch)
         writer.add_scalar('Loss/Validation', val_loss, epoch)
+        writer.add_scalar('Loss/Validation_Variance', val_var, epoch)
         writer.flush()
 
         # Add values for WandB logger
         wandb.log({
             "Epoch": epoch,
             "Loss/Train": train_loss,
-            "Loss/Validation": val_loss
+            "Loss/Validation": val_loss,
+            "Loss/Validation_Variance": val_var
         })
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        # --- NUOVA LOGICA DI EARLY STOPPING BASATA SULLA VARIANZA ---
+        if val_var < best_val_var:
+            best_val_var = val_var
             no_improvement_epochs = 0
             is_best = True
         else:
@@ -179,37 +198,39 @@ def main(args):
             'encoder_state_dict': encoder.state_dict(),
             'decoder_state_dict': decoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'best_val_loss': best_val_loss,
+            'best_val_var': best_val_var,  # Salviamo la miglior varianza
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
+        
         torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
         if is_best:
             torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
 
         if no_improvement_epochs >= patience:
-            print(f'Early stopping at epoch {epoch+1}')
+            print(f'Early stopping at epoch {epoch+1} due to no improvement in Validation Variance.')
             break
 
     writer.close()
     wandb.finish()
     print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
 
+
 if __name__ == "__main__":
-    # Command line args configuration
-    parser = argparse.ArgumentParser(description="Train the ensemble model for jet image classification")
+    parser = argparse.ArgumentParser(description="Train the symmetric Autoencoder for Anomaly Detection")
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1], help='Classes to consider as background (e.g. 0 1)')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
-    parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
-    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
+    parser.add_argument('--epochs', type=int, default=40, help='Number of epochs')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch dimension')
+    parser.add_argument('--img_size', type=int, default=128, help='Image size for resizing')
+    parser.add_argument('--latent_space_dim', type=int, default=16, help='Dimension of the latent space')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization) factor')
-    parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay factor')
+    parser.add_argument('--max_samples', type=int, default=30000, help="Maximum number of samples to use for training")
     parser.add_argument('--data_path', type=str, default='./dataset.h5', help='Path to the dataset file')
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
-    parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
-    parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
+    parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained")
+    parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
+    parser.add_argument('--noise_prob', type=float, default=0.0, help='Probability of Pepper Noise')
 
     args = parser.parse_args()
     main(args)

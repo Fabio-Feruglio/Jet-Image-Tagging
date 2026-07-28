@@ -7,8 +7,23 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 
 from dataset.dataloader import get_dataloaders
-from model.other_models_attempt.autoencoder import Encoder, Decoder
+from model.other_models_attempt.miniVAE import Encoder, Decoder
 
+###CUSTOM LOSS FUNC FOR VAE
+def VAE_loss_fn(reconstructed_x, x, mu, log_var, sigma=1.0):
+    # 1. MSE puro (Media su tutto il batch e tutti i pixel)
+    # Valore atteso all'inizio: circa 0.05 - 0.2
+    recon_loss = torch.nn.functional.mse_loss(reconstructed_x, x, reduction='mean') / (sigma**2)
+
+    # 2. KL Divergence (Media sul batch)
+    kl_div = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=1).mean()
+
+    # 3. Dividiamo la KL per il numero di pixel per bilanciarla con la media della MSE
+    num_pixels = x.shape[1] * x.shape[2] * x.shape[3]
+    kl_div_scaled = kl_div / num_pixels
+
+    # Valore finale piccolo e stabile
+    return recon_loss + kl_div_scaled
 
 ### TRAINING ###
 def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
@@ -19,14 +34,15 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
     train_iterator = tqdm(dataloader)
     for x_batch, label_batch in train_iterator:
         x_batch = x_batch.to(device)
+
         label_batch = label_batch.to(device)
 
         # Forward pass
-        encoded = encoder(x_batch)
+        encoded, mu, log_var = encoder(x_batch)
         reconstructed_x = decoder(encoded)
 
         # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
+        loss = loss_fn(reconstructed_x, x_batch, mu, log_var) 
 
         # Backward pass
         optimizer.zero_grad() 
@@ -52,11 +68,12 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
 
         for x_batch, label_batch in val_iterator:
             x_batch = x_batch.to(device)
+            
             label_batch = label_batch.to(device)
 
-            encoded = encoder(x_batch)
+            encoded, mu, log_var = encoder(x_batch)
             reconstructed_x = decoder(encoded)
-            loss = loss_fn(reconstructed_x, x_batch)
+            loss = loss_fn(reconstructed_x, x_batch, mu, log_var)
 
             losses.append(loss.item())
             
@@ -89,8 +106,8 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
-        name = f"train_ae_lr{args.lr}",                    # Name for the run
+        project = "jet-tagging-anomaly-detection-vae-attempt",             # Project name
+        name = f"train_vae_lr{args.lr}",                    # Name for the run
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -109,19 +126,14 @@ def main(args):
     # 4. Initialize model and loss function
     encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
-    loss_fn = torch.nn.MSELoss()
+    loss_fn = VAE_loss_fn
 
     # 5. Define an optimizer 
     lr = args.lr 
-    optimizer = torch.optim.Adagrad([
-            {'params': encoder.parameters(), 'lr': lr},
-            {'params': decoder.parameters(), 'lr': lr}
-        ], weight_decay=args.weight_decay)
-    """optimizer = torch.optim.Adam([
+    optimizer = torch.optim.Adam([
         {'params': encoder.parameters(), 'lr': lr},
         {'params': decoder.parameters(), 'lr': lr}
     ], weight_decay=args.weight_decay)
-    """
 
     start_epoch = 0
     best_val_loss = float('inf')
@@ -183,9 +195,9 @@ def main(args):
             'no_improvement_epochs': no_improvement_epochs,
             'wandb_run_id': run.id
         }
-        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_latest.pth'))
+        torch.save(checkpoint_dict, os.path.join(args.save_dir, 'miniVAE_latest.pth'))
         if is_best:
-            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'autoencoder_best.pth'))
+            torch.save(checkpoint_dict, os.path.join(args.save_dir, 'miniVAE_best.pth'))
 
         if no_improvement_epochs >= patience:
             print(f'Early stopping at epoch {epoch+1}')
@@ -193,7 +205,7 @@ def main(args):
 
     writer.close()
     wandb.finish()
-    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
+    print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "miniVAE_best.pth")}')
 
 if __name__ == "__main__":
     # Command line args configuration

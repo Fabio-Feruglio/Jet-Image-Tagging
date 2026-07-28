@@ -10,23 +10,36 @@ from dataset.dataloader import get_dataloaders
 from model.other_models_attempt.autoencoder import Encoder, Decoder
 
 
+def apply_pepper_noise(images, prob=0.1):
+    """
+    Simula 'dead cells' spegnendo (0) una percentuale casuale di pixel.
+    Viene applicato solo ai dati in input, non al target.
+    """
+    if prob <= 0.0:
+        return images
+    mask = (torch.rand_like(images) > prob).float()
+    return images * mask
+
+
 ### TRAINING ###
-def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
+def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device, noise_prob):
     encoder.train()
     decoder.train()
     losses = []
 
     train_iterator = tqdm(dataloader)
-    for x_batch, label_batch in train_iterator:
+    for x_batch, _ in train_iterator:
         x_batch = x_batch.to(device)
-        label_batch = label_batch.to(device)
+        
+        # Applica il Pepper Noise per il DAE (se noise_prob > 0)
+        x_noisy = apply_pepper_noise(x_batch, prob=noise_prob)
 
-        # Forward pass
-        encoded = encoder(x_batch)
+        # Forward pass sull'immagine corrotta
+        encoded = encoder(x_noisy)
         reconstructed_x = decoder(encoded)
 
-        # Loss computation
-        loss = loss_fn(reconstructed_x, x_batch)  # Assuming we are using MSE loss for reconstruction
+        # Loss calcolata contro l'immagine ORIGINALE (pulita)
+        loss = loss_fn(reconstructed_x, x_batch) 
 
         # Backward pass
         optimizer.zero_grad() 
@@ -37,7 +50,6 @@ def train_epoch(encoder, decoder, dataloader, loss_fn, optimizer, device):
         losses.append(loss.item())
 
     avg_loss = np.mean(losses)
-
     return avg_loss
 
 
@@ -50,20 +62,18 @@ def val_epoch(encoder, decoder, dataloader, loss_fn, device):
     with torch.no_grad():
         val_iterator = tqdm(dataloader)
 
-        for x_batch, label_batch in val_iterator:
+        for x_batch, _ in val_iterator:
             x_batch = x_batch.to(device)
-            label_batch = label_batch.to(device)
-
+            
+            # In validazione il modello DEVE ricostruire l'immagine pulita originale
             encoded = encoder(x_batch)
             reconstructed_x = decoder(encoded)
             loss = loss_fn(reconstructed_x, x_batch)
 
             losses.append(loss.item())
-            
             val_iterator.set_description(f"Val loss: {loss.item():.4f}")
             
     avg_loss = np.mean(losses)
-    
     print(f"Validation Loss: {avg_loss:.4f}")
     return avg_loss
 
@@ -81,7 +91,6 @@ def main(args):
 
     wandb_run_id = None
     if args.resume_from and os.path.isfile(args.resume_from):
-        
         temp_checkpoint = torch.load(args.resume_from, map_location='cpu', weights_only=False)
         if 'wandb_run_id' in temp_checkpoint:
             wandb_run_id = temp_checkpoint['wandb_run_id']
@@ -89,8 +98,8 @@ def main(args):
 
     # Wandb setup
     run = wandb.init(
-        project = "jet-tagging-anomaly-detection-ae-attempt",             # Project name
-        name = f"train_ae_lr{args.lr}",                    # Name for the run
+        project = "jet-tagging-anomaly-detection-ae-attempt",
+        name = f"train_ae_symm_noise{args.noise_prob}_lr{args.lr}", 
         config = vars(args),
         id = wandb_run_id,     
         resume = "allow"                                     
@@ -113,15 +122,12 @@ def main(args):
 
     # 5. Define an optimizer 
     lr = args.lr 
+    # --- MODIFICA RICHIESTA: Cambiato da Adam ad Adagrad ---
     optimizer = torch.optim.Adagrad([
-            {'params': encoder.parameters(), 'lr': lr},
-            {'params': decoder.parameters(), 'lr': lr}
-        ], weight_decay=args.weight_decay)
-    """optimizer = torch.optim.Adam([
         {'params': encoder.parameters(), 'lr': lr},
         {'params': decoder.parameters(), 'lr': lr}
     ], weight_decay=args.weight_decay)
-    """
+    # -------------------------------------------------------
 
     start_epoch = 0
     best_val_loss = float('inf')
@@ -148,7 +154,7 @@ def main(args):
     
     # 6. Training cycle
     for epoch in range(start_epoch, args.epochs):
-        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device)
+        train_loss = train_epoch(encoder, decoder, train_dataloader, loss_fn, optimizer, device, args.noise_prob)
         val_loss = val_epoch(encoder, decoder, valid_dataloader, loss_fn, device)
 
         print(f'EPOCH {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f}')
@@ -196,20 +202,22 @@ def main(args):
     print(f'Training completed. Best model saved in {os.path.join(args.save_dir, "autoencoder_best.pth")}')
 
 if __name__ == "__main__":
-    # Command line args configuration
-    parser = argparse.ArgumentParser(description="Train the ensemble model for jet image classification")
+    parser = argparse.ArgumentParser(description="Train the symmetric Autoencoder for Anomaly Detection")
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1], help='Classes to consider as background (e.g. 0 1)')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=256, help='Batch dimension')
-    parser.add_argument('--img_size', type=int, default=299, help='Image size for resizing')
-    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
+    parser.add_argument('--epochs', type=int, default=40, help='Number of epochs')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch dimension')
+    parser.add_argument('--img_size', type=int, default=128, help='Image size for resizing')
+    parser.add_argument('--latent_space_dim', type=int, default=16, help='Dimension of the latent space')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization) factor')
-    parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use for training")
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay factor')
+    parser.add_argument('--max_samples', type=int, default=30000, help="Maximum number of samples to use for training")
     parser.add_argument('--data_path', type=str, default='./dataset.h5', help='Path to the dataset file')
     parser.add_argument('--save_dir', type=str, default='./checkpoints', help='Directory for model/results saving')
-    parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained to resume training")
-    parser.add_argument('--patience', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
+    parser.add_argument('--resume_from', type=str, default=None, help="Path to weights already trained")
+    parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
+    
+    # Argomento chiave per attivare il Denoising
+    parser.add_argument('--noise_prob', type=float, default=0.0, help='Probability of Pepper Noise (0.0 to disable, e.g., 0.1 for 10% noise)')
 
     args = parser.parse_args()
     main(args)
