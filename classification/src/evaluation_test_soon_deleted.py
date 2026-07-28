@@ -16,7 +16,8 @@ from model.ensemble import EnsembleModel
 from model.mini_ensemble import MiniResNet, MiniInception, MiniEnsemble
 
 def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, model_name, num_classes=5,
-                     class_names=['g', 'q', 't', 'W', 'Z']):
+                     class_names=['g', 'q', 't', 'W', 'Z'],
+                     roc_class_names=[r'$g$', r'$q$', r'$t$', r'$W$', r'$Z$']):
     model.eval() 
     
     with torch.no_grad(): # Remove gradient computation
@@ -61,20 +62,20 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         cm = confusion_matrix(true_labels, pred_labels)
         class_labels = class_names
         
-        # Figura 12x9 per alloggiare i font scalati del +50%
         plt.figure(figsize=(12, 9))
         ax = sns.heatmap(cm, annot=True, fmt='.2f', cmap='Blues', 
                         xticklabels=class_labels, yticklabels=class_labels, 
-                        annot_kws={"size": 32}) # Font annotazioni +50%
+                        annot_kws={"size": 32})
         
         cbar = ax.collections[0].colorbar
-        cbar.ax.tick_params(labelsize=29) # Font colorbar +50%
+        cbar.ax.tick_params(labelsize=29)
         
-        plt.xlabel('Predicted Label', fontsize=32)
-        plt.ylabel('True Label', fontsize=32)
+        plt.xlabel('Predicted Label', fontsize=38)
+        plt.ylabel('True Label', fontsize=38)
         plt.xticks(fontsize=30)
         plt.yticks(fontsize=30)
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=33)
+        # Titolo portato a fontsize=42 per mantenere la gerarchia visiva
+        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=42, pad=15)
         
         cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
         plt.savefig(cm_path, bbox_inches='tight')
@@ -92,16 +93,17 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         for i in range(num_classes):
             fpr, tpr, _ = roc_curve(true_labels_bin[:, i], probs[:, i])
             roc_auc = auc(fpr, tpr)
-            plt.plot(fpr, tpr, lw=2, label=f'{class_names[i]} (AUC = {roc_auc:.3f})')
+            plt.plot(fpr, tpr, lw=2, label=f'{roc_class_names[i]} (AUC = {roc_auc:.3f})')
 
         plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
         plt.xticks(fontsize=30)
         plt.yticks(fontsize=30)
-        plt.xlabel('False Positive Rate', fontsize=32)
-        plt.ylabel('True Positive Rate', fontsize=32)
-        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}', fontsize=33)
+        plt.xlabel('False Positive Rate', fontsize=38)
+        plt.ylabel('True Positive Rate', fontsize=38)
+        # Titolo portato a fontsize=42
+        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}', fontsize=42, pad=15)
         plt.legend(loc="lower right", fontsize=32)
 
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
