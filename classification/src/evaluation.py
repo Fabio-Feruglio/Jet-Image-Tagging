@@ -70,21 +70,21 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
             cmap='Blues', 
             xticklabels=class_names, 
             yticklabels=class_names, 
-            annot_kws={"size": 16} 
+            annot_kws={"size": 24} 
         )
         
         
-        ax.set_xticklabels(class_names, fontsize=18, rotation=30, ha='right')
-        ax.set_yticklabels(class_names, fontsize=18, rotation=0)
+        ax.set_xticklabels(class_names, fontsize=22, rotation=30, ha='right')
+        ax.set_yticklabels(class_names, fontsize=22, rotation=0)
 
         
         cbar = ax.collections[0].colorbar
-        cbar.ax.tick_params(labelsize=16)
+        cbar.ax.tick_params(labelsize=21)
 
         
-        plt.xlabel('Predicted Label', fontsize=20, labelpad=10)
-        plt.ylabel('True Label', fontsize=20, labelpad=10)
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=22, pad=15)
+        plt.xlabel('Predicted Label', fontsize=22, labelpad=10)
+        plt.ylabel('True Label', fontsize=22, labelpad=10)
+        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=24, pad=15)
 
         cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
         plt.savefig(cm_path, bbox_inches='tight') # bbox_inches='tight' assicura che nulla venga tagliato ai bordi
