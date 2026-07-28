@@ -55,29 +55,45 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         print("\nClassification Report:")
         print(classification_report(true_labels, pred_labels))
 
-        # ---------------------------------------------------------
+       
         # Normalized Confusion matrix
-        # ---------------------------------------------------------
-        cm = confusion_matrix(true_labels, pred_labels)
-        class_labels = class_names
-        plt.figure(figsize=(8, 6))
-        ax =sns.heatmap(cm, annot = True, fmt = '.2f', cmap = 'Blues', 
-                    xticklabels = class_labels, yticklabels = class_labels, annot_kws={"size": 21})
+        
+        cm = confusion_matrix(true_labels, pred_labels, normalize='true') 
+        
+        
+        plt.figure(figsize=(10, 8))
+        
+        ax = sns.heatmap(
+            cm, 
+            annot=True, 
+            fmt='.2f', 
+            cmap='Blues', 
+            xticklabels=class_names, 
+            yticklabels=class_names, 
+            annot_kws={"size": 26} 
+        )
+        
+        
+        ax.set_xticklabels(class_names, fontsize=23, rotation=30, ha='right')
+        ax.set_yticklabels(class_names, fontsize=23, rotation=0)
+
+        
         cbar = ax.collections[0].colorbar
-        cbar.ax.tick_params(labelsize=19)
-        plt.xlabel('Predicted Label', fontsize=21)
-        plt.ylabel('True Label', fontsize=21)
-        plt.xticks(fontsize=20)
-        plt.yticks(fontsize=20)
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=22)
+        cbar.ax.tick_params(labelsize=21)
+
+        
+        plt.xlabel('Predicted Label', fontsize=25, labelpad=10)
+        plt.ylabel('True Label', fontsize=25, labelpad=10)
+        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=28, pad=15)
+
         cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
-        plt.savefig(cm_path, bbox_inches='tight')
+        plt.savefig(cm_path, bbox_inches='tight') # bbox_inches='tight' assicura che nulla venga tagliato ai bordi
         plt.close()
         print(f"Confusion Matrix saved in: {cm_path}")
 
-        # ---------------------------------------------------------
+        
         # Roc curve and AUC
-        # ---------------------------------------------------------
+        
         # One-hot encode the true labels for ROC computation
         true_labels_bin = np.asarray(label_binarize(true_labels, classes=list(range(num_classes)), sparse_output=False))
 
