@@ -62,16 +62,23 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         
         class_labels = class_names
         plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot = True, fmt = '.2f', cmap = 'Blues', 
-                    xticklabels = class_labels, yticklabels = class_labels)
-        plt.xlabel('Predicted Label', fontsize=20)
-        plt.ylabel('True Label', fontsize=20)
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=20)
-        plt.xticks(fontsize=20)
-        plt.yticks(fontsize=20)
+        
+        # annot_kws={"size": 16} ingrandisce i numeri dentro le celle
+        sns.heatmap(cm, annot=True, fmt='.2f', cmap='Blues', 
+                    xticklabels=class_labels, yticklabels=class_labels,
+                    annot_kws={"size": 16}) 
+        
+        plt.xlabel('Predicted Label', fontsize=16)
+        plt.ylabel('True Label', fontsize=16)
+        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=18, pad=15)
+        
+        # Aggiunta la rotazione per evitare che i nomi delle classi si sovrappongano
+        plt.xticks(fontsize=14, rotation=45, ha='right')
+        plt.yticks(fontsize=14, rotation=0)
 
-        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
-        plt.savefig(cm_path, bbox_inches='tight')
+        # Salviamo in PDF per LaTeX (massima qualità vettoriale)
+        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.pdf')
+        plt.savefig(cm_path, bbox_inches='tight', dpi=300)
         plt.close()
         print(f"Confusion Matrix saved in: {cm_path}")
 
@@ -81,7 +88,8 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         # One-hot encode the true labels for ROC computation
         true_labels_bin = np.asarray(label_binarize(true_labels, classes=list(range(num_classes)), sparse_output=False))
         
-        plt.figure(figsize=(10, 8))
+        # Ho ridotto leggermente a 8,6 per allinearla alle dimensioni della confusion matrix in LaTeX
+        plt.figure(figsize=(8, 6))
         
         for i in range(num_classes):
             fpr, tpr, _ = roc_curve(true_labels_bin[:, i], probs[:, i])
@@ -91,15 +99,15 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
-        plt.xticks(fontsize=20)
-        plt.yticks(fontsize=20)
-        plt.xlabel('False Positive Rate', fontsize=20)
-        plt.ylabel('True Positive Rate', fontsize=20)
-        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}', fontsize=20)
-        plt.legend(loc="lower right", fontsize=20)
+        plt.xticks(fontsize=14)
+        plt.yticks(fontsize=14)
+        plt.xlabel('False Positive Rate', fontsize=16)
+        plt.ylabel('True Positive Rate', fontsize=16)
+        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}', fontsize=18, pad=15)
+        plt.legend(loc="lower right", fontsize=13)
         
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.pdf')
-        plt.savefig(roc_path, bbox_inches='tight')
+        plt.savefig(roc_path, bbox_inches='tight', dpi=300)
         plt.close()
         print(f"ROC plot saved in: {roc_path}")
 
