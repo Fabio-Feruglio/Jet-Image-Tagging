@@ -62,7 +62,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         
         class_labels = class_names
         plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot = True, fmt = 'd', cmap = 'Blues', 
+        sns.heatmap(cm, annot = True, fmt = '.2f', cmap = 'Blues', 
                     xticklabels = class_labels, yticklabels = class_labels)
         plt.xlabel('Predicted Label', fontsize=20)
         plt.ylabel('True Label', fontsize=20)
