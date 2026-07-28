@@ -61,11 +61,13 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         cm = confusion_matrix(true_labels, pred_labels)
         class_labels = class_names
         plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot = True, fmt = '.2f', cmap = 'Blues', 
-                    xticklabels = class_labels, yticklabels = class_labels)
-        plt.xlabel('Predicted Label', fontsize=14)
-        plt.ylabel('True Label', fontsize=14)
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=16)
+        ax =sns.heatmap(cm, annot = True, fmt = '.2f', cmap = 'Blues', 
+                    xticklabels = class_labels, yticklabels = class_labels, annot_kws={"size": 14})
+        cbar = ax.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=12)
+        plt.xlabel('Predicted Label', fontsize=17)
+        plt.ylabel('True Label', fontsize=17)
+        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=19)
         cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
         plt.savefig(cm_path, bbox_inches='tight')
         plt.close()
@@ -87,12 +89,12 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12) 
-        plt.xlabel('False Positive Rate',fontsize=14)
-        plt.ylabel('True Positive Rate',fontsize=14)
-        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}',fontsize=16)
-        plt.legend(loc="lower right", fontsize=13)
+        plt.xticks(fontsize=14)
+        plt.yticks(fontsize=14) 
+        plt.xlabel('False Positive Rate',fontsize=17)
+        plt.ylabel('True Positive Rate',fontsize=17)
+        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}',fontsize=19)
+        plt.legend(loc="lower right", fontsize=16)
         
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
         plt.savefig(roc_path, bbox_inches='tight')
