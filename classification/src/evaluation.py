@@ -70,7 +70,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
             cmap='Blues', 
             xticklabels=class_names, 
             yticklabels=class_names, 
-            annot_kws={"size": 24} 
+            annot_kws={"size": 35} 
         )
         
         
