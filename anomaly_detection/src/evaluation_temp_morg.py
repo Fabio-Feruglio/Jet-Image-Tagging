@@ -57,7 +57,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     # ---------------------------------------------------------
     plt.figure(figsize=(8, 8))
     
-    sns.histplot(anomaly_scores[true_labels == 0], color='blue', label='Background (QCD/Light)', 
+    sns.histplot(anomaly_scores[true_labels == 0], color='blue', label='Bg (q/g)', 
                  kde=True, stat='density', alpha=0.5, bins=70, binrange=(-0.2, 1.7))
     
     if np.sum(true_labels == 1) > 0:
@@ -68,7 +68,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     plt.xlabel('Reconstruction Error (Anomaly Score)',fontsize=25, labelpad=10)
     plt.ylabel('Density',fontsize=25, labelpad=10)
     plt.title(f'Anomaly Score Distribution - {data_split.capitalize()}',fontsize=28, pad=15)
-    plt.legend(fontsize=25)
+    plt.legend(fontsize=20)
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
     dist_path = os.path.join(save_dir, f'loss_dist_{data_split}_{model_name}.pdf')
@@ -78,9 +78,6 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
 
     # ---------------------------------------------------------
     # PLOT 2: ROC Curve 
-    # ---------------------------------------------------------
-    # ---------------------------------------------------------
-    # PLOT 2 & 3: ROC Curve & Background Rejection Curve
     # ---------------------------------------------------------
     roc_auc = None
     if np.sum(true_labels == 1) > 0:
@@ -95,10 +92,10 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
         plt.ylim((0.0, 1.05))
         plt.xticks(fontsize=20)
         plt.yticks(fontsize=20)
-        plt.xlabel('False Positive Rate (Background Efficiency $\epsilon_B$)', fontsize=25, labelpad=10)
-        plt.ylabel('True Positive Rate (Signal Efficiency $\epsilon_S$)', fontsize=25, labelpad=10)
+        plt.xlabel('False Positive Rate', fontsize=25, labelpad=10)
+        plt.ylabel('True Positive Rate', fontsize=25, labelpad=10)
         plt.title(f'Standard ROC Curve - {data_split.capitalize()}', fontsize=28, pad=15)
-        plt.legend(loc="lower right", fontsize=25)
+        plt.legend(loc="lower right", fontsize=20)
         
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.pdf')
         plt.savefig(roc_path, bbox_inches='tight')
@@ -122,7 +119,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
         plt.ylabel('Background Rejection ($1/\epsilon_B$)', fontsize=25, labelpad=10)
         plt.title(f'Background Rejection Curve - {data_split.capitalize()}', fontsize=28, pad=15)
         plt.grid(True, which="both", ls="--", alpha=0.5)
-        plt.legend(loc="upper right", fontsize=25)
+        plt.legend(loc="upper right", fontsize=20)
         
         rej_path = os.path.join(save_dir, f'rejection_curve_{data_split}_{model_name}.pdf')
         plt.savefig(rej_path, bbox_inches='tight')
@@ -137,7 +134,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     # ---------------------------------------------------------
     print(f"Computing PCA and t-SNE for latent space projection ({data_split.upper()})")
     
-    label_names = {0: 'Background (QCD/Light)', 1: 'Anomalies (t/W/Z)'}
+    label_names = {0: 'Bg (q/g)', 1: 'Anomalies (t/W/Z)'}
     mapped_labels = [label_names[l] for l in true_labels]
 
     # PCA 
@@ -146,12 +143,12 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     
     plt.figure(figsize=(8, 8))
     sns.scatterplot(x=latent_pca[:, 0], y=latent_pca[:, 1], hue=mapped_labels, 
-                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (t/W/Z)': 'red'}, 
+                    palette={'Bg (q/g)': 'blue', 'Anomalies (t/W/Z)': 'red'}, 
                     alpha=0.6)
     plt.title(f'PCA Latent Space Projection - {data_split.capitalize()}', fontsize=28, pad=15)
     plt.xlabel('Principal Component 1', fontsize=25, labelpad=10)
     plt.ylabel('Principal Component 2', fontsize=25, labelpad=10)
-    plt.legend(fontsize=25)
+    plt.legend(fontsize=20)
     
     pca_path = os.path.join(save_dir, f'pca_latent_{data_split}_{model_name}.pdf')
     plt.savefig(pca_path, bbox_inches='tight')
@@ -165,12 +162,12 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     
     plt.figure(figsize=(8, 8))
     sns.scatterplot(x=latent_tsne[:, 0], y=latent_tsne[:, 1], hue=mapped_labels, 
-                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (t/W/Z)': 'red'}, 
+                    palette={'Bg (q/g)': 'blue', 'Anomalies (t/W/Z)': 'red'}, 
                     alpha=0.6)
     plt.title(f't-SNE Latent Space Projection - {data_split.capitalize()}', fontsize=28, pad=15)
     plt.xlabel('t-SNE Dimension 1', fontsize=25, labelpad=10)
     plt.ylabel('t-SNE Dimension 2', fontsize=25, labelpad=10)
-    plt.legend(fontsize=25)
+    plt.legend(fontsize=20)
     
     tsne_path = os.path.join(save_dir, f'tsne_latent_{data_split}_{model_name}.pdf')
     plt.savefig(tsne_path, bbox_inches='tight')
