@@ -6,20 +6,16 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pandas as pd
 from tqdm import tqdm
 from sklearn.metrics import roc_curve, auc
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-
-from dataset.dataloader import get_dataloaders 
 
 def evaluate_unified(dataloader, encoder, decoder, device, save_dir, model_name, data_split, args):
     encoder.eval()
     decoder.eval()
 
     mse_loss_fn = nn.MSELoss(reduction='none') 
-    
     anomaly_scores = []
     true_labels = []
     latent_vectors = []
@@ -59,6 +55,14 @@ def evaluate_unified(dataloader, encoder, decoder, device, save_dir, model_name,
                 loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1)
                 anomaly_scores.extend(loss_per_image.cpu().numpy())
                 latent_vectors.extend(encoded.view(encoded.size(0), -1).cpu().numpy())
+
+            elif args.model == 'hybrid':
+                z, p = encoder(batch_x)
+                reconstructed = decoder(z)
+                
+                loss_per_pixel = mse_loss_fn(reconstructed, batch_x)
+                loss_per_image = loss_per_pixel.view(loss_per_pixel.size(0), -1).mean(dim=1)
+                anomaly_scores.extend(loss_per_image.cpu().numpy())
                 
             true_labels.extend(batch_y.numpy())
 
@@ -69,7 +73,7 @@ def evaluate_unified(dataloader, encoder, decoder, device, save_dir, model_name,
     
     mean_loss = np.mean(anomaly_scores)
     print(f"\nResults {data_split.upper()}:")
-    print(f"Mean Reconstruction Loss: {mean_loss:.6f}")
+    print(f"Mean Reconstruction Loss (Anomaly Score): {mean_loss:.6f}")
 
     # PLOT 1: Anomaly Score Distribution
     plt.figure(figsize=(10, 6))
@@ -100,7 +104,6 @@ def evaluate_unified(dataloader, encoder, decoder, device, save_dir, model_name,
         plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
-        
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
         plt.title(f'ROC Curve - {data_split.capitalize()} ({model_name.upper()})')
@@ -110,7 +113,6 @@ def evaluate_unified(dataloader, encoder, decoder, device, save_dir, model_name,
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
         
-        # Only AE gets Rejection Curve exactly as requested in original setup
         if args.model == 'ae':
             plt.figure(figsize=(8, 8))
             valid_idx = fpr > 0
@@ -121,8 +123,8 @@ def evaluate_unified(dataloader, encoder, decoder, device, save_dir, model_name,
             plt.plot(tpr_valid, rejection, color='purple', lw=2, label=f'Autoencoder Rejection')
             plt.yscale('log') 
             plt.xlim((0.0, 1.0))
-            plt.xlabel('Signal Efficiency ($\epsilon_S$)')
-            plt.ylabel('Background Rejection ($1/\epsilon_B$)')
+            plt.xlabel('Signal Efficiency ($\\epsilon_S$)')
+            plt.ylabel('Background Rejection ($1/\\epsilon_B$)')
             plt.title(f'Background Rejection Curve - {data_split.capitalize()}')
             plt.grid(True, which="both", ls="--", alpha=0.5)
             plt.legend(loc="upper right")
@@ -134,7 +136,6 @@ def evaluate_unified(dataloader, encoder, decoder, device, save_dir, model_name,
     else:
         print(f"Skipping ROC curves for {data_split.upper()} (No anomalies).")
 
-    # Only AE evaluates latent space exactly as originally formulated
     if args.model == 'ae' and len(latent_vectors) > 0:
         print(f"Computing PCA and t-SNE for latent space projection ({data_split.upper()})")
         label_names = {0: 'Background (QCD/Light)', 1: 'Anomalies (New Physics)'}
@@ -174,22 +175,38 @@ def main(args):
     
     os.makedirs(args.save_dir, exist_ok=True)
     
-    # Load dataloaders
-    _, valid_loader, test_loader = get_dataloaders(
-        data_filepath = args.data_path, 
-        bg_classes = args.bg_classes,
-        img_size = args.img_size, 
-        batch_size = args.batch_size, 
-        num_workers = min(4, os.cpu_count() or 1),
-        max_samples = args.max_samples
-    )
+    if args.model == 'hybrid':
+        from dataset.dataloader_supcon import get_dataloaders
+        _, valid_loader, test_loader = get_dataloaders(
+            data_filepath = args.data_path, 
+            bg_classes = args.bg_classes,
+            img_size = args.img_size, 
+            batch_size = args.batch_size, 
+            num_workers = min(4, os.cpu_count() or 1),
+            max_samples = args.max_samples,
+            binary_train_labels = False
+        )
+    else:
+        from dataset.dataloader import get_dataloaders
+        _, valid_loader, test_loader = get_dataloaders(
+            data_filepath = args.data_path, 
+            bg_classes = args.bg_classes,
+            img_size = args.img_size, 
+            batch_size = args.batch_size, 
+            num_workers = min(4, os.cpu_count() or 1),
+            max_samples = args.max_samples
+        )
     
     if args.model == 'vae':
         from model.other_models_attempt.miniVAE import Encoder, Decoder
+        encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
+    elif args.model == 'hybrid':
+        from model.other_models_attempt.autoencoder import HybridEncoder as Encoder, Decoder
+        encoder = Encoder(latent_space_dim=args.latent_space_dim, proj_dim=64).to(device)
     else:
         from model.other_models_attempt.autoencoder import Encoder, Decoder
+        encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
         
-    encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)
     
     print(f"Loading model weights from: {args.model_path}")
@@ -206,14 +223,14 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Unified Evaluation Script")
-    parser.add_argument('--model', type=str, required=True, choices=['ae', 'vae', 'sae'], help='Model type to evaluate')
-    parser.add_argument('--model_path', type=str, required=True, help="Model weights path")
-    parser.add_argument('--data_path', type=str, default='./dataset.h5', help="Path to the dataset")
-    parser.add_argument('--save_dir', type=str, default='./results_ad', help="Directory for plots and results")
-    parser.add_argument('--max_samples', type=int, default=None, help="Maximum number of samples to use")
+    parser.add_argument('--model', type=str, required=True, choices=['ae', 'vae', 'sae', 'hybrid'])
+    parser.add_argument('--model_path', type=str, required=True)
+    parser.add_argument('--data_path', type=str, default='./dataset.h5')
+    parser.add_argument('--save_dir', type=str, default='./results_ad')
+    parser.add_argument('--max_samples', type=int, default=None)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--img_size', type=int, default=128, help='Image size')
+    parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--bg_classes', nargs='+', type=int, default=[0, 1])
-    parser.add_argument('--latent_space_dim', type=int, default=128, help='Dimension of the latent space')
+    parser.add_argument('--latent_space_dim', type=int, default=128)
     args = parser.parse_args()
     main(args)
