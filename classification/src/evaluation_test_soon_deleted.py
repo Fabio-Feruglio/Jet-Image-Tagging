@@ -59,7 +59,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         # ---------------------------------------------------------
         # Normalized Confusion matrix
         # ---------------------------------------------------------
-        cm = confusion_matrix(true_labels, pred_labels)
+        cm = confusion_matrix(true_labels, pred_labels, normalize='true')
         class_labels = class_names
         
         plt.figure(figsize=(12, 9))
