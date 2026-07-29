@@ -55,27 +55,50 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         print("\nClassification Report:")
         print(classification_report(true_labels, pred_labels))
 
-        # Confusion matrix
-        cm = confusion_matrix(true_labels, pred_labels)
-        class_labels = class_names
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot = True, fmt = 'd', cmap = 'Blues', 
-                    xticklabels = class_labels, yticklabels = class_labels)
-        plt.xlabel('Predicted Label')
-        plt.ylabel('True Label')
-        plt.title(f'Confusion Matrix - {data_split.capitalize()}')
+       
+        # Normalized Confusion matrix
         
-        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
-        plt.savefig(cm_path, bbox_inches='tight')
-        plt.close()
-        print(f"Confusion Matrix saved in: {cm_path}")
-
-        # Roc curve and AUC
-        # One-hot encode the true labels for ROC computation
-        true_labels_bin = np.asarray(label_binarize(true_labels, classes=list(range(num_classes)), sparse_output=False))
+        cm = confusion_matrix(true_labels, pred_labels, normalize='true') 
+        
         
         plt.figure(figsize=(10, 8))
         
+        ax = sns.heatmap(
+            cm, 
+            annot=True, 
+            fmt='.2f', 
+            cmap='Blues', 
+            xticklabels=class_names, 
+            yticklabels=class_names, 
+            annot_kws={"size": 26} 
+        )
+        
+        
+        ax.set_xticklabels(class_names, fontsize=23, rotation=30, ha='right')
+        ax.set_yticklabels(class_names, fontsize=23, rotation=0)
+
+        
+        cbar = ax.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=21)
+
+        
+        plt.xlabel('Predicted Label', fontsize=25, labelpad=10)
+        plt.ylabel('True Label', fontsize=25, labelpad=10)
+        plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=28, pad=15)
+
+        cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
+        plt.savefig(cm_path, bbox_inches='tight') # bbox_inches='tight' assicura che nulla venga tagliato ai bordi
+        plt.close()
+        print(f"Confusion Matrix saved in: {cm_path}")
+
+        
+        # Roc curve and AUC
+        
+        # One-hot encode the true labels for ROC computation
+        true_labels_bin = np.asarray(label_binarize(true_labels, classes=list(range(num_classes)), sparse_output=False))
+
+        plt.figure(figsize=(10, 8))
+
         for i in range(num_classes):
             fpr, tpr, _ = roc_curve(true_labels_bin[:, i], probs[:, i])
             roc_auc = auc(fpr, tpr)
@@ -84,11 +107,13 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray')
         plt.xlim((0.0, 1.0))
         plt.ylim((0.0, 1.05))
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}')
-        plt.legend(loc="lower right")
-        
+        plt.xticks(fontsize=26)
+        plt.yticks(fontsize=26)
+        plt.xlabel('False Positive Rate',fontsize=28)
+        plt.ylabel('True Positive Rate',fontsize=28)
+        plt.title(f'Multiclass ROC Curves - {data_split.capitalize()}',fontsize=33)
+        plt.legend(loc="lower right", fontsize=25)
+
         roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
