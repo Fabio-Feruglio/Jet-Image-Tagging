@@ -61,7 +61,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
                  kde=True, stat='density', alpha=0.5, bins=50, binrange=(0, 1.5))
     
     if np.sum(true_labels == 1) > 0:
-        sns.histplot(anomaly_scores[true_labels == 1], color='red', label='Anomalies (New Physics)', 
+        sns.histplot(anomaly_scores[true_labels == 1], color='red', label='Anomalies (t/W/Z)', 
                      kde=True, stat='density', alpha=0.5, bins=50, binrange=(0, 1.5))
         
     plt.xlabel('Reconstruction Error (Anomaly Score)')
@@ -69,7 +69,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     plt.title(f'Anomaly Score Distribution - {data_split.capitalize()}')
     plt.legend()
     
-    dist_path = os.path.join(save_dir, f'loss_dist_{data_split}_{model_name}.png')
+    dist_path = os.path.join(save_dir, f'loss_dist_{data_split}_{model_name}.pdf')
     plt.savefig(dist_path, bbox_inches='tight')
     plt.close()
     print(f"Distribution plot saved in: {dist_path}")
@@ -97,7 +97,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
         plt.title(f'Standard ROC Curve - {data_split.capitalize()}')
         plt.legend(loc="lower right")
         
-        roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.png')
+        roc_path = os.path.join(save_dir, f'roc_curve_{data_split}_{model_name}.pdf')
         plt.savefig(roc_path, bbox_inches='tight')
         plt.close()
 
@@ -121,7 +121,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
         plt.grid(True, which="both", ls="--", alpha=0.5)
         plt.legend(loc="upper right")
         
-        rej_path = os.path.join(save_dir, f'rejection_curve_{data_split}_{model_name}.png')
+        rej_path = os.path.join(save_dir, f'rejection_curve_{data_split}_{model_name}.pdf')
         plt.savefig(rej_path, bbox_inches='tight')
         plt.close()
         
@@ -134,7 +134,7 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     # ---------------------------------------------------------
     print(f"Computing PCA and t-SNE for latent space projection ({data_split.upper()})")
     
-    label_names = {0: 'Background (QCD/Light)', 1: 'Anomalies (New Physics)'}
+    label_names = {0: 'Background (QCD/Light)', 1: 'Anomalies (t/W/Z)'}
     mapped_labels = [label_names[l] for l in true_labels]
 
     # PCA 
@@ -143,14 +143,14 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     
     plt.figure(figsize=(8, 8))
     sns.scatterplot(x=latent_pca[:, 0], y=latent_pca[:, 1], hue=mapped_labels, 
-                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (New Physics)': 'red'}, 
+                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (t/W/Z)': 'red'}, 
                     alpha=0.6)
     plt.title(f'PCA Latent Space Projection - {data_split.capitalize()}')
     plt.xlabel('Principal Component 1')
     plt.ylabel('Principal Component 2')
     plt.legend()
     
-    pca_path = os.path.join(save_dir, f'pca_latent_{data_split}_{model_name}.png')
+    pca_path = os.path.join(save_dir, f'pca_latent_{data_split}_{model_name}.pdf')
     plt.savefig(pca_path, bbox_inches='tight')
     plt.close()
     print(f"PCA plot saved in: {pca_path}")
@@ -162,14 +162,14 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     
     plt.figure(figsize=(8, 8))
     sns.scatterplot(x=latent_tsne[:, 0], y=latent_tsne[:, 1], hue=mapped_labels, 
-                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (New Physics)': 'red'}, 
+                    palette={'Background (QCD/Light)': 'blue', 'Anomalies (t/W/Z)': 'red'}, 
                     alpha=0.6)
     plt.title(f't-SNE Latent Space Projection - {data_split.capitalize()}')
     plt.xlabel('t-SNE Dimension 1')
     plt.ylabel('t-SNE Dimension 2')
     plt.legend()
     
-    tsne_path = os.path.join(save_dir, f'tsne_latent_{data_split}_{model_name}.png')
+    tsne_path = os.path.join(save_dir, f'tsne_latent_{data_split}_{model_name}.pdf')
     plt.savefig(tsne_path, bbox_inches='tight')
     plt.close()
     print(f"t-SNE plot saved in: {tsne_path}")
