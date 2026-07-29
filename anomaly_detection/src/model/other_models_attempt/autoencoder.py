@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from .mininception import MinInception
 from .resnet10 import ResNet10
+import torch.nn.functional as F
 
 class Encoder(nn.Module):
     def __init__(self, latent_space_dim, in_features=1):
