@@ -9,7 +9,7 @@ import wandb
 
 # MODIFICA: Importiamo il nuovo dataloader
 from dataset.dataloader_supcon import get_dataloaders
-from model.other_models_attempt.hybrid_ae_supcon import HybridEncoder, Decoder
+from model.other_models_attempt.autoencoder import HybridEncoder, Decoder
 
 class SupConLoss(torch.nn.Module):
     def __init__(self, temperature=0.1):
