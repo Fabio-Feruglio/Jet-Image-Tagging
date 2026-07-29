@@ -146,6 +146,8 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
                     palette={'Bg (q/g)': 'blue', 'Anomalies (t/W/Z)': 'red'}, 
                     alpha=0.6)
     plt.title(f'PCA Latent Space Projection - {data_split.capitalize()}', fontsize=28, pad=15)
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
     plt.xlabel('Principal Component 1', fontsize=25, labelpad=10)
     plt.ylabel('Principal Component 2', fontsize=25, labelpad=10)
     plt.legend(fontsize=20)
@@ -168,7 +170,9 @@ def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, m
     plt.xlabel('t-SNE Dimension 1', fontsize=25, labelpad=10)
     plt.ylabel('t-SNE Dimension 2', fontsize=25, labelpad=10)
     plt.legend(fontsize=20)
-    
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
+
     tsne_path = os.path.join(save_dir, f'tsne_latent_{data_split}_{model_name}.pdf')
     plt.savefig(tsne_path, bbox_inches='tight')
     plt.close()
