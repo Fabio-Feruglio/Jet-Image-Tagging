@@ -198,13 +198,13 @@ def main(args):
         )
     
     if args.model == 'vae':
-        from model.other_models_attempt.miniVAE import Encoder, Decoder
+        from anomaly_detection.src.model.miniVAE import Encoder, Decoder
         encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     elif args.model == 'hybrid':
-        from model.other_models_attempt.autoencoder import HybridEncoder as Encoder, Decoder
+        from model.autoencoder import HybridEncoder as Encoder, Decoder
         encoder = Encoder(latent_space_dim=args.latent_space_dim, proj_dim=64).to(device)
     else:
-        from model.other_models_attempt.autoencoder import Encoder, Decoder
+        from model.autoencoder import Encoder, Decoder
         encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
         
     decoder = Decoder(latent_space_dim=args.latent_space_dim).to(device)

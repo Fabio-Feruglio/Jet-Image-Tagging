@@ -12,7 +12,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
 from dataset.dataloader import get_dataloaders 
-from model.other_models_attempt.autoencoder import Encoder, Decoder
+from model.autoencoder import Encoder, Decoder
 
 def evaluate_anomaly_detection(dataloader, encoder, decoder, device, save_dir, model_name, data_split):
     encoder.eval()
