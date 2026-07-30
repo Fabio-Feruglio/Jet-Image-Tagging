@@ -182,13 +182,13 @@ def objective(trial, args):
         trial.report(epoch_val_loss, epoch)
         if trial.should_prune():
             wandb.finish() 
-            print(f"Trial pruned at epoch {epoch+1} con val loss {epoch_val_loss:.4f}")
+            print(f"Trial pruned at epoch {epoch+1} with val loss {epoch_val_loss:.4f}")
             raise optuna.exceptions.TrialPruned()
 
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
     
-    print(f"Trial {trial.number} completato con best val loss: {best_val_loss:.4f}")
+    print(f"Trial {trial.number} completed. Best val loss: {best_val_loss:.4f}")
     wandb.finish()
     
     return float(best_val_loss)

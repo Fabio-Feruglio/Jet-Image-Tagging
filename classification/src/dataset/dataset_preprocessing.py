@@ -7,7 +7,6 @@ import os
 import argparse
 
 ### Import and pre-processing from JetNet dataset
-
 def process_and_save_hdf5(output_filepath = 'jet_images_299.h5',
                            data_dir = './JetNet_dataset',
                            jet_types = ['t', 'q', 'g', 'w', 'z'],

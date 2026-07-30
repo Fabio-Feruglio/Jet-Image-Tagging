@@ -87,7 +87,7 @@ def evaluate_network(dataloader, model, loss_fn, device, data_split, save_dir, m
         plt.title(f'Confusion Matrix - {data_split.capitalize()}', fontsize=28, pad=15)
 
         cm_path = os.path.join(save_dir, f'confusion_matrix_{data_split}_{model_name}.png')
-        plt.savefig(cm_path, bbox_inches='tight') # bbox_inches='tight' assicura che nulla venga tagliato ai bordi
+        plt.savefig(cm_path, bbox_inches='tight')
         plt.close()
         print(f"Confusion Matrix saved in: {cm_path}")
 

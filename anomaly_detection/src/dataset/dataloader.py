@@ -151,18 +151,18 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
             stratify=bg_labels
         )
 
-    # Split background samples into Train+Val and Test (85% (70+15%) Train+Val, 15% Test)
+    # Split background samples into Train+Val and Test (90% Train+Val, 10% Test)
     bg_train_val_idx, bg_test_idx, bg_train_val_labels, _ = train_test_split(
         bg_indices, bg_labels, 
-        test_size=0.15, 
+        test_size=0.10, 
         random_state=42, 
         stratify=bg_labels
     )
     
-    # Divide the Train+Val set into Train and Validation (70% Train, 15% Validation)
+    # Divide the Train+Val set into Train and Validation (80% Train, 10% Validation)
     train_idx, val_idx = train_test_split(
         bg_train_val_idx, 
-        test_size=0.15 / 0.85, 
+        test_size=0.10 / 0.90, 
         random_state=42, 
         stratify=bg_train_val_labels 
     )

@@ -1,7 +1,7 @@
 import torch
 from torch import nn
-from .mininception import MinInception
-from .resnet10 import ResNet10
+from ...anomaly_detection.src.model.mininception import MinInception
+from ...anomaly_detection.src.model.resnet10 import ResNet10
 
 def reparameterize(mu, log_var):
     std = torch.exp(0.5 * log_var)
