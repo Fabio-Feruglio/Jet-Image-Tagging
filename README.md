@@ -12,17 +12,9 @@ The project is, at the moment, divided into two main tasks:
 - **Resource-Efficient Classification:** Implement an ensemble of "lightweight" CNNs to classify jets into categories (Top Quarks, Light Quarks, W and Z bosons) and evaluate them using standard HEP metrics (Accuracy, AUC-ROC).
 - **New Physics Search:** Train an Autoencoder solely on QCD/Light quark background jets. Use the reconstruction error (MSE) as an anomaly score to isolate unseen signal jets.
 
-## Structure
-Our codebase is modularly designed to support two different architectures within the same pipeline:
+## Authors
 
-```text
-├── dataset_preprocessing.py  # JetNet point cloud to 2D image conversion & transforms
-├── dataloader.py             # PyTorch Dataset and DataLoader definitions
-├── models/
-│   ├── ensemble_cnn.py       # Lightweight CNN components and Ensemble logic
-│   └── autoencoder.py        # Encoder-Decoder architecture for anomaly detection
-├── training.py               # Training loops (Supervised for Ensemble, Unsupervised for AE)
-├── evaluation.py             # Metrics calculation (Accuracy, ROC curves, Reconstruction Loss distributions)
-├── tune.py                   # Hyperparameter tuning script
-├── main.py                   # Main execution script
-└── README.md                 # Project documentation
+- **Matteo Morgante** - <matteo.morgante@studenti.unipd.it>
+- **Matteo Serafini** - <matteo.serafini.1@studenti.unipd.it> 
+- **Fabio Feruglio** - <fabio.feruglio@studenti.unipd.it>
+
