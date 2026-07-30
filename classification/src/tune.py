@@ -12,8 +12,6 @@ from model.resnet import ResNet50
 from model.inceptionv3 import InceptionV3
 from model.mini_ensemble import MiniResNet, MiniInception
 
-# Example file for tuning with optuna and viewing training loss / validation loss with Wandb
-
 def build_model(model_name, mini=False):
     """
     Use optuna 'trial' object to define a dynamic model
@@ -75,7 +73,7 @@ def objective(trial, args):
     optimizer = torch.optim.Adam(model.parameters(), lr = lr, weight_decay = weight_decay)
     best_val_loss = float('inf')
 
-    # Training cycle (fixed number of epochs for each experiment: max 10)
+    # Training cycle
     for epoch in range(args.tune_epochs):
         model.train()
         train_losses = []
@@ -134,7 +132,7 @@ def objective(trial, args):
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
     
-    print(f"Trial {trial.number} completed with best val loss: {best_val_loss:.4f}")
+    print(f"Trial {trial.number} completed. Best val loss: {best_val_loss:.4f}")
 
     wandb.finish()
     
