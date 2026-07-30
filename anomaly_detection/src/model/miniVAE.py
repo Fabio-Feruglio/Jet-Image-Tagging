@@ -12,7 +12,6 @@ def reparameterize(mu, log_var):
 class TransformHead(nn.Module):
     def __init__(self, latent_space_dim, proj_dim=64):
         super().__init__()
-        # Una semplice rete MLP a due strati
         self.net = nn.Sequential(
             nn.Linear(latent_space_dim, latent_space_dim),
             nn.BatchNorm1d(latent_space_dim),
@@ -22,8 +21,6 @@ class TransformHead(nn.Module):
 
     def forward(self, x):
         x = self.net(x)
-        # La normalizzazione L2 mappa i vettori sulla superficie di un'ipersfera,
-        # rendendo il calcolo delle distanze molto più stabile per la loss contrastiva.
         return F.normalize(x, dim=1)
     
 class Encoder(nn.Module):

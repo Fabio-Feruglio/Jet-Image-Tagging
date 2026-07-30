@@ -191,7 +191,7 @@ def main(args):
     
     # 4. Initialize model and loss function
     if args.model == 'vae':
-        from anomaly_detection.src.model.miniVAE import Encoder, Decoder
+        from model.miniVAE import Encoder, Decoder
         encoder = Encoder(latent_space_dim=args.latent_space_dim).to(device)
     elif args.model == 'hybrid':
         from model.autoencoder import HybridEncoder as Encoder, Decoder

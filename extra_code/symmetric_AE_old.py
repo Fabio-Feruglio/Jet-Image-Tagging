@@ -3,9 +3,6 @@ from torch import nn
 from .mininception import MinInception
 from .resnet10 import ResNet10
 
-# ==========================================
-# DECODER BLOCKS (REVERSE MINI-ENSEMBLE)
-# ==========================================
 class BasicBlockTranspose(nn.Module):
     """
     Specchio del BasicBlock di ResNet.

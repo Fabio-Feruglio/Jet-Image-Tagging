@@ -12,7 +12,6 @@ class JetImageAnomalyDataset(Dataset):
     def __init__(self, dataset_filepath, transform = None, indices = None, bg_classes = [0, 1], binary_labels = True):
         """
         PyTorch dataset for loading 2D jet images from an HDF5 file.
-        Aggiunto il parametro 'binary_labels' per preservare le etichette originali se necessario.
         """
         self.filepath = dataset_filepath
         self.h5_file = None
@@ -49,7 +48,6 @@ class JetImageAnomalyDataset(Dataset):
         image_np = self.h5_file['images'][actual_idx] 
         label_np = self.h5_file['labels'][actual_idx] 
 
-        # MODIFICA: Appiattisce le classi a 0 (Background) e 1 (Anomalia) SOLO se binary_labels è True
         if self.bg_classes is not None and self.binary_labels:
             label_np = 0 if label_np in self.bg_classes else 1
         
@@ -99,9 +97,7 @@ def get_mean_and_std(dataloader, cache_file="dataset_stats.json"):
 
 
 def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_size = 299, batch_size = 64, num_workers = 0, max_samples = None, binary_train_labels=False):
-    """
-    Aggiunto il parametro binary_train_labels di default a False per il modello Contrastivo.
-    """
+
     with h5py.File(data_filepath, "r") as f:
         labels_obj = f["labels"]
         if not isinstance(labels_obj, h5py.Dataset):
@@ -164,7 +160,7 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
         dataset_filepath = data_filepath, 
         indices = train_idx, 
         bg_classes = bg_classes,
-        binary_labels = True # Usato solo per calcolare mean e std, la label non importa
+        binary_labels = True 
     )
     
     stat_loader = DataLoader(
@@ -186,20 +182,19 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
     ])
 
 
-    # MODIFICA: Configurazione delle etichette nei dataset
     train_dataset = JetImageAnomalyDataset(
         dataset_filepath = data_filepath, 
         transform = train_transforms, 
         indices = train_idx, 
         bg_classes = bg_classes,
-        binary_labels = binary_train_labels  # Consente etichette originali per il contrastivo
+        binary_labels = binary_train_labels 
     )
     valid_dataset = JetImageAnomalyDataset(
         dataset_filepath = data_filepath, 
         transform = eval_transforms, 
         indices = val_idx, 
         bg_classes = bg_classes,
-        binary_labels = True  # Sempre True per calcolare correttamente le metriche 0/1
+        binary_labels = True  
     )
     
     test_dataset  = JetImageAnomalyDataset(
@@ -207,7 +202,7 @@ def get_dataloaders(data_filepath = "./dataset.h5", bg_classes = [0, 1], img_siz
         transform = eval_transforms, 
         indices = test_idx, 
         bg_classes = bg_classes,
-        binary_labels = True  # Sempre True per calcolare correttamente le ROC
+        binary_labels = True 
     )
 
     pin_memory = torch.cuda.is_available()
